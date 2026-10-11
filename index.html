@@ -899,12 +899,23 @@ function renderCmp(){
 $("#cmp").addEventListener("click", e => { const t = e.target.closest("[data-c]"); if(t) gotoStock(t.dataset.c); });
 
 // ---------- 外資+投信買超排行(固定表) ----------
-const rkState = {win:20, top:30, ind:"全部", watch:false, sort:"ft", minStreak:0, dir:"any", main:"any", g4:"any", g1k:"any", minFt:0};
-const RK_STR = new Set(["sort","dir","main","g4","g1k"]);
+const rkState = {win:20, top:30, ind:"全部", watch:false, sort:"ft", minStreak:0, chk:{}, g4:"any", g1k:"any", minFt:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"};
+const RK_STR = new Set(["sort","g4","g1k","minYoy","nearHi"]);
+// 條件勾選:勾 2 個以上取交集(AND);買超/賣超互斥
+const RK_CHK = [
+  ["fBuy","外資買超"], ["fSell","外資賣超"], ["tBuy","投信買超"], ["tSell","投信賣超"],
+  ["force","主力籌碼增加"], ["totBuy","三大法人合計買超"], ["g4up","400張大戶增加"], ["g1up","1000張大戶增加"],
+  ["qUp","外資持股比增加"], ["streak","外+投連買達標"],
+  ["revBoth","營收月年雙增"], ["aboveMa","站上月線(20日)"]
+];
+const RK_EXCL = {fBuy:"fSell", fSell:"fBuy", tBuy:"tSell", tSell:"tBuy"};
 const RK_PRESET = {
-  bothBuy:{dir:"bothBuy"}, bothBuy4:{dir:"bothBuy",g4:"up"}, force:{main:"buy",g4:"up",g1k:"up"},
-  bothSell:{dir:"bothSell"}, bothSell4:{dir:"bothSell",g4:"down"}, reset:{dir:"any",main:"any",g4:"any",g1k:"any",minFt:0,minStreak:0}
+  bothBuy:{chk:{fBuy:1,tBuy:1}}, bothBuy4:{chk:{fBuy:1,tBuy:1,g4up:1}}, force:{chk:{force:1}},
+  bothSell:{chk:{fSell:1,tSell:1}}, bothSell4:{chk:{fSell:1,tSell:1}, g4:"down"},
+  potential:{chk:{fBuy:1,tBuy:1,g4up:1,revBoth:1,aboveMa:1}, maxR:15, minYoy:"20"},
+  reset:{chk:{}, g4:"any", g1k:"any", minFt:0, minStreak:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"}
 };
+try { const s = JSON.parse(localStorage.getItem("rkState") || "null"); if(s && typeof s === "object") Object.assign(rkState, s, {chk: Object.assign({}, s.chk)}); } catch(e){}
 // 由最新一天往回數連續買超(正)或賣超(負)的交易日數;最新一天為 0 則回傳 0
 function streak(arr){
   if(!arr || !arr.length) return 0;
@@ -926,6 +937,7 @@ function renderRank(){
   const tmap = {}; Object.entries(F.theme).forEach(([g,o]) => o.codes.forEach(c => (tmap[c] = tmap[c]||[]).push(g)));
   const wlBy = {}; WL.forEach(x => wlBy[x.code] = x);
   const w = rkState.win;
+  try { localStorage.setItem("rkState", JSON.stringify(rkState)); } catch(e){}
   let all = Object.entries(F.stocks).filter(([c,x]) => x.i).map(([c,x]) => {
     const a = x.w[w], ft = a[0] + a[1];
     const wl = wlBy[c], eps = wl ? epsNum(wl.eps27) : null;
@@ -938,16 +950,26 @@ function renderRank(){
       sf: streak(dd.map(v => v[0])), st: streak(dd.map(v => v[1])), sft: streak(dd.map(v => v[0] + v[1]))};
   });
   const inds = ["全部"].concat([...new Set(all.map(r => r.x.i))].sort());
-  const dirOk = r => { const m = rkState.dir; return m==="any" || (m==="bothBuy" && r.f>0 && r.t>0) || (m==="bothSell" && r.f<0 && r.t<0)
-    || (m==="fBuyTSell" && r.f>0 && r.t<0) || (m==="fSellTBuy" && r.f<0 && r.t>0); };
+  const ck = rkState.chk, minSt = rkState.minStreak || 3;
+  const CHK_FN = {fBuy:r=>r.f>0, fSell:r=>r.f<0, tBuy:r=>r.t>0, tSell:r=>r.t<0,
+    force:r=>r.tot>0 && r.d4w!=null && r.d4w>0 && r.d1w!=null && r.d1w>0, totBuy:r=>r.tot>0,
+    g4up:r=>r.d4w!=null && r.d4w>0, g1up:r=>r.d1w!=null && r.d1w>0, qUp:r=>r.dq!=null && r.dq>0, streak:r=>r.sft>=minSt,
+    revBoth:r=>!!r.x.rv && r.x.rv[1]>0 && r.x.rv[2]>0, aboveMa:r=>!!r.x.m && r.x.c>=r.x.m[0]};
+  const posOk = r => (!rkState.maxR || (r.x.r!=null && r.x.r<=rkState.maxR))
+    && (rkState.minYoy==="any" || (!!r.x.rv && r.x.rv[2]>=+rkState.minYoy))
+    && (rkState.nearHi==="any" || (!!r.x.m && r.x.m[1]>0 && (r.x.m[1]-r.x.c)/r.x.m[1]*100 <= +rkState.nearHi));
+  const actChk = RK_CHK.filter(([k]) => ck[k]);
+  const dirOk = r => actChk.every(([k]) => CHK_FN[k](r));
   const gOk = (v, m) => m==="any" || (v!=null && ((m==="up" && v>0) || (m==="down" && v<0) || (m!=="up" && m!=="down" && v >= +m)));
   const SK = {ft:r=>r.ft, sft:r=>r.sft*1e4 + r.ft, sf:r=>r.sf*1e4 + r.f, st:r=>r.st*1e4 + r.t, sq:r=>r.dq==null ? -1e9 : r.dq,
     b4:r=>r.d4w==null ? -1e9 : r.d4w, b1:r=>r.d1w==null ? -1e9 : r.d1w};
-  const sellSide = rkState.dir === "bothSell" || rkState.dir === "fSellTBuy";   // 找賣超時,金額最大的賣超排最前面
+  const sellSide = !!ck.fSell || (!!ck.tSell && !ck.fBuy);   // 找賣超時,金額最大的賣超排最前面
   all.sort((a,b) => (rkState.sort === "ft" && sellSide) ? a.ft - b.ft : SK[rkState.sort](b) - SK[rkState.sort](a));
+  const themes = ["全部"].concat(Object.keys(F.theme).sort((a,b) => a.localeCompare(b, "zh-Hant")));
   let list = all.filter(r => (rkState.ind==="全部" || r.x.i===rkState.ind) && (!rkState.watch || r.wl)
+    && (rkState.theme==="全部" || (tmap[r.c] || []).includes(rkState.theme))
     && (!rkState.minStreak || r.sft >= rkState.minStreak)
-    && dirOk(r) && (rkState.main !== "buy" || r.tot > 0) && (!rkState.minFt || Math.abs(r.ft) >= rkState.minFt) && r.x.c > 0 && !(r.x.r != null && r.x.r <= -99)
+    && dirOk(r) && posOk(r) && (!rkState.minFt || Math.abs(r.ft) >= rkState.minFt) && r.x.c > 0 && !(r.x.r != null && r.x.r <= -99)
     && gOk(r.d4w, rkState.g4) && gOk(r.d1w, rkState.g1k));
   const total = list.length;
   list = list.slice(0, rkState.top);
@@ -962,19 +984,28 @@ function renderRank(){
       <span class="lab">期間</span>${seg("win", [[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], rkState.win)}
       <span class="lab">顯示</span>${seg("top", [[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], rkState.top)}
       <span class="lab">產業別</span><select id="rkInd" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${inds.map(i=>`<option ${i===rkState.ind?'selected':''}>${esc(i)}</option>`).join("")}</select>
+      <span class="lab">題材族群</span><select id="rkTheme" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${themes.map(i=>`<option ${i===rkState.theme?'selected':''}>${esc(i)}</option>`).join("")}</select>
       <label style="cursor:pointer"><input type="checkbox" id="rkWatch" ${rkState.watch?'checked':''}> 只看自選股</label>
     </div>
     <div class="fl-ctl">
       <span class="lab">快速條件</span>
       <button class="rkp" data-p="bothBuy">外資投信同買</button><button class="rkp" data-p="bothBuy4">同買 + 400張大戶增加</button>
       <button class="rkp" data-p="force">主力籌碼增加</button>
+      <button class="rkp" data-p="potential" title="外資投信同買 + 400張大戶增加 + 營收月年雙增 + 站上月線 + 20日漲幅 ≤ 15% + 營收年增 ≥ 20%">潛力股組合</button>
       <button class="rkp" data-p="bothSell">外資投信同賣</button><button class="rkp" data-p="bothSell4">同賣 + 400張大戶減少</button>
       <button class="rkp" data-p="reset">清除條件</button>
     </div>
     <div class="fl-ctl">
-      <span class="lab">外資/投信</span>${seg("dir", [["any","不限"],["bothBuy","同買"],["bothSell","同賣"],["fBuyTSell","外買投賣"],["fSellTBuy","外賣投買"]], rkState.dir)}
-      <span class="lab">三大法人合計</span>${seg("main", [["any","不限"],["buy","買超"]], rkState.main)}
+      <span class="lab">條件勾選(可複選,取交集)</span>
+      ${RK_CHK.map(([k,t]) => `<label style="cursor:pointer;border:1px solid ${ck[k]?'var(--accent,#4ea1ff)':'var(--line)'};border-radius:6px;padding:4px 10px;white-space:nowrap"><input type="checkbox" data-chk="${k}" ${ck[k]?'checked':''}> ${k==="streak"?`外+投連買 ≥ ${minSt} 日`:t}</label>`).join("")}
+    </div>
+    <div class="fl-ctl">
       <span class="lab">外+投買(賣)超至少(億)</span>${seg("minFt", [[0,"不限"],[5,"5"],[10,"10"],[30,"30"],[50,"50"]], rkState.minFt)}
+    </div>
+    <div class="fl-ctl">
+      <span class="lab">20日漲幅上限</span>${seg("maxR", [[0,"不限"],[5,"≤ 5%"],[10,"≤ 10%"],[15,"≤ 15%"],[30,"≤ 30%"]], rkState.maxR)}
+      <span class="lab">營收年增</span>${seg("minYoy", [["any","不限"],["0","≥ 0%"],["20","≥ 20%"],["50","≥ 50%"]], rkState.minYoy)}
+      <span class="lab">距近60日高點</span>${seg("nearHi", [["any","不限"],["5","≤ 5%"],["10","≤ 10%"],["20","≤ 20%"]], rkState.nearHi)}
     </div>
     <div class="fl-ctl">
       <span class="lab">400 張大戶週變化</span>${seg("g4", [["any","不限"],["up","增加"],["0.3","≥ +0.3pt"],["1","≥ +1pt"],["down","減少"]], rkState.g4)}
@@ -984,6 +1015,10 @@ function renderRank(){
       <span class="lab">排序</span>${seg("sort", [["ft","買超金額"],["sft","外+投連買天數"],["sf","外資連買天數"],["st","投信連買天數"],["sq","外資持股增加"],["b4","400張大戶增加"],["b1","1000張大戶增加"]], rkState.sort)}
       <span class="lab">外+投至少連買</span>${seg("minStreak", [[0,"不限"],[3,"3 日"],[5,"5 日"],[10,"10 日"]], rkState.minStreak)}
     </div>
+    <div class="note" style="margin:0 0 8px"><b>已勾選:</b>${(() => { const a = actChk.map(([k,t]) => k==="streak" ? `外+投連買 ≥ ${minSt} 日` : t);
+      if(rkState.theme!=="全部") a.unshift(`題材:${rkState.theme}`);
+      if(rkState.maxR) a.push(`20日漲幅 ≤ ${rkState.maxR}%`); if(rkState.minYoy!=="any") a.push(`營收年增 ≥ ${rkState.minYoy}%`);
+      if(rkState.nearHi!=="any") a.push(`距60日高 ≤ ${rkState.nearHi}%`); return a.length ? a.join(" + ") : "無(全市場排行)"; })()},共 ${total} 檔</div>
     <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">20日漲幅</th><th class="n">外資(億)</th><th class="n">投信(億)</th><th class="n">外+投(億)</th><th class="n" title="外資由最近一日往回算,連續買超或賣超的交易日數">外資連續</th><th class="n">投信連續</th><th class="n">外+投連續</th><th class="n" title="持股 400 張(40 萬股)以上股東合計占集保庫存比例;括號為與上週相比的變化(百分點)">400張大戶%(週)</th><th class="n" title="持股 1000 張以上股東合計占集保庫存比例">1000張大戶%(週)</th><th class="n" title="400 張以上大戶人數與上週相比的變化">400張人數(週)</th><th class="n" title="全體外資及陸資持股占發行股數比率(證交所、櫃買中心)">外資持股%</th><th class="n" title="與期間起點前一日相比的變化,單位為百分點">${w} 日變化(pt)</th>
       <th class="n">營收月增</th><th class="n">營收年增</th><th class="n">明年 EPS 預估</th><th class="n">預估 P/E</th><th>產業別 · 族群</th></tr></thead><tbody>
       ${list.map((r,i)=>`<tr class="clk" data-c="${r.c}"><td class="mute">${i+1}</td>
@@ -1005,13 +1040,20 @@ function renderRank(){
 }
 $("#rank").addEventListener("click", e => {
   const sg = e.target.closest(".seg button");
-  const pb = e.target.closest(".rkp"); if(pb){ Object.assign(rkState, RK_PRESET.reset, RK_PRESET[pb.dataset.p]); renderRank(); return; }
+  const pb = e.target.closest(".rkp"); if(pb){ Object.assign(rkState, RK_PRESET.reset, RK_PRESET[pb.dataset.p]); rkState.chk = Object.assign({}, rkState.chk); renderRank(); return; }
   if(sg){ const id = sg.parentNode.dataset.id; rkState[id] = RK_STR.has(id) ? sg.dataset.k : +sg.dataset.k; renderRank(); return; }
   const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c);
 });
 $("#rank").addEventListener("change", e => {
   if(e.target.id==="rkInd"){ rkState.ind = e.target.value; renderRank(); }
+  if(e.target.id==="rkTheme"){ rkState.theme = e.target.value; renderRank(); }
   if(e.target.id==="rkWatch"){ rkState.watch = e.target.checked; renderRank(); }
+  const k = e.target.dataset && e.target.dataset.chk;
+  if(k){
+    if(e.target.checked){ rkState.chk[k] = 1; if(RK_EXCL[k]) delete rkState.chk[RK_EXCL[k]]; }
+    else delete rkState.chk[k];
+    renderRank();
+  }
 });
 
 // ---------- CCL 材料進度(M8 / M9 / M10 / PTFE) ----------
