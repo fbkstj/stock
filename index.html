@@ -1573,6 +1573,11 @@ $("#fsDown").addEventListener("click", () => { const n = [...FS_STEPS].reverse()
   const h = decodeURIComponent(location.hash.slice(1)).split("/");
   const hb = document.querySelector(`#nav button[data-t="${h[0]}"]`);
   navSuppress = true;
+  if(h[0] === "rank" && h[1] === "top15"){   // 每日更新後自動開啟:全市場、20 日、依買超張數排名前 15
+    Object.assign(rkDraft, RK_PRESET.reset, {top:15, sort:"zft", win:20, ind:"全部", watch:false});
+    rkDraft.chk = {};
+    Object.assign(rkState, JSON.parse(JSON.stringify(rkDraft)));
+  }
   if(hb) hb.click();
   if(h[0] === "view" && h[1]) select(h[1]);
   navSuppress = false;
