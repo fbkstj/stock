@@ -270,6 +270,7 @@ td.clk{cursor:pointer}
     <div id="center">
       <div id="bar">
         <span class="title" id="ttl"></span>
+        <span id="cbchips"></span>
         <div class="seg" id="period"><button data-p="D" class="on">日K</button><button data-p="W">週K</button><button data-p="M">月K</button></div>
         <div class="seg" id="range"><button data-r="60">3月</button><button data-r="120" class="on">6月</button><button data-r="250">1年</button><button data-r="9999">全部</button></div>
         <div class="seg" id="indsel"><button data-i="KD" class="on">KD</button><button data-i="MACD">MACD</button><button data-i="VOL">量</button><button data-i="INST">法人</button></div>
@@ -712,6 +713,12 @@ function renderInfo(){
   const fs = window.FLOW && window.FLOW.stocks[current];
   // 相關 CB(資料 data/cb.js):進度、轉換價、與現價的關係
   const cbs = ((window.CB && window.CB.cases) || []).filter(c => c.code === current);
+  { const chipEl = $("#cbchips");   // 圖表上方的 CB 捷徑:一鍵切到 CB 自己的 K 線
+    if(chipEl){
+      const parts = cbs.map(c => { const bk = cbkOf(c.cb); return bk && bk.r.length
+        ? `<button class="rkp" data-cb="${esc(c.cb)}" style="${cbView===c.cb ? "outline:2px solid var(--accent);" : ""}">CB ${esc(c.name)} ${fmt(bk.r[bk.r.length-1][4],2)}</button>` : ""; }).filter(Boolean);
+      chipEl.innerHTML = parts.join(" ") + (parts.length && cbView ? ` <button class="rkp" data-cbback="1">← 現股</button>` : "");
+    } }
   if(cbs.length){
     const stT = {priced:"已定價 / 掛牌", filed:"已送件", board:"董事會通過"};
     const sh = window.CB.shares[current], px = d ? lastInfo(current).c : (fs ? fs.c : null);
@@ -1175,11 +1182,11 @@ function renderCb(){
     <div class="tbl"><table><thead><tr><th>分組</th><th class="n">樣本</th><th class="n">前 20 日 中位</th><th class="n">上漲比例</th><th class="n">後 5 日 中位</th><th class="n">上漲比例</th><th class="n">後 20 日 中位</th><th class="n">上漲比例</th></tr></thead><tbody>${stT}</tbody></table></div>
     <div class="note">統計為中位數與上漲比例,樣本多落在近一年多頭行情,只能看出關聯,不代表因果。發行前股價通常已先上漲;轉換溢價高、發行量大的案件掛牌後表現較弱。</div>`;
 }
-$("#info").addEventListener("click", e => {
+["#info", "#cbchips"].forEach(sel => $(sel).addEventListener("click", e => {
   const b = e.target.closest("[data-cb]");
   if(b){ if(!b.disabled){ cbView = b.dataset.cb; renderChart(); renderInfo(); } return; }
   if(e.target.closest("[data-cbback]")){ cbView = null; renderChart(); renderInfo(); }
-});
+}));
 $("#cb").addEventListener("click", e => {
   const sg = e.target.closest(".seg button");
   if(sg){ cbState[sg.parentNode.dataset.id] = sg.dataset.k; renderCb(); return; }
