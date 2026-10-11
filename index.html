@@ -699,6 +699,26 @@ function renderInfo(){
       `</tbody></table><div class="note">統計到 ${ds.at(-1)}</div>`;
   }
   const fs = window.FLOW && window.FLOW.stocks[current];
+  // 相關 CB(資料 data/cb.js):進度、轉換價、與現價的關係
+  const cbs = ((window.CB && window.CB.cases) || []).filter(c => c.code === current);
+  if(cbs.length){
+    const stT = {priced:"已定價 / 掛牌", filed:"已送件", board:"董事會通過"};
+    const sh = window.CB.shares[current], px = d ? lastInfo(current).c : (fs ? fs.c : null);
+    h += `<h3>相關 CB(${cbs.length})</h3>` + cbs.map(c => {
+      const mon = c.conv && px ? (px / c.conv - 1) * 100 : null, dil = c.conv && sh ? c.vol / c.conv / sh * 100 : null;
+      return `<div class="kv" style="margin-bottom:8px">
+        <div>${esc(c.name)}</div><div>${esc(c.cb)} · ${esc(c.kind)} · <b>${esc(stT[c.stage])}</b></div>
+        <div>發行量</div><div>${c.vol==null?"—":fmt(c.vol,1)+" 億"}${c.term?" · "+esc(c.term):""}</div>
+        ${c.conv ? `<div>轉換價</div><div>${fmt(c.conv,1)}${c.prem?` <span class="mute">(溢價 ${esc(c.prem)})</span>`:""}</div>
+        <div>現價 vs 轉換價</div><div class="${cls(mon)}">${mon==null?"—":(mon>0?"價內 ":"價外 ")+fmt(Math.abs(mon),1)+"%"}</div>
+        <div>潛在稀釋</div><div>${dil==null?"—":fmt(dil,1)+"%"}</div>` : ""}
+        ${c.listed ? `<div>掛牌 / 可拆解</div><div style="white-space:normal">${esc(c.listed)}${c.ungroup?" / "+esc(c.ungroup):""}</div>` : ""}
+        ${c.board ? `<div>董事會</div><div>${esc(c.board)}</div>` : ""}
+        <div>主辦 / 評等</div><div style="white-space:normal">${esc(c.lead||"—")} / ${esc(c.tcri||"—")}</div>
+        ${c.put ? `<div>賣回條件</div><div style="white-space:normal">${esc(c.put)}</div>` : ""}
+        ${c.note ? `<div>備註</div><div style="white-space:normal">${esc(c.note)}</div>` : ""}</div>`;
+    }).join("") + `<div class="note">CB 本身的成交價與 K 線需另取櫃買中心行情,目前未接入。</div>`;
+  }
   if(!iv && fs){
     h += `<h3>三大法人買賣超(億元,估算)</h3><table style="font-size:calc(12px*var(--fs))"><thead><tr><th></th><th class="n">外資</th><th class="n">投信</th><th class="n">自營</th></tr></thead><tbody>` +
       [[1,"最近 1 日"],[5,"近 5 日"],[20,"近 20 日"],[60,"近 60 日"]].map(([n,t])=>`<tr><td>${t}</td>${[0,1,2].map(k=>{const v=fs.w[n][k];return `<td class="n ${cls(v)}">${fmt(v,1)}</td>`}).join("")}</tr>`).join("") +
@@ -1079,7 +1099,7 @@ $("#rank").addEventListener("change", e => {
 // ---------- CB 案件:發行進度與現股的關係(資料 data/cb.js 由 build_cb.py 產生,僅本機,不發布) ----------
 const cbState = {sort:"listed", stage:"all"};
 { const s = document.createElement("script"); s.src = "data/cb.js";
-  s.onload = () => { const b = document.getElementById("navCb"); if(b && window.CB){ b.style.display = ""; if(b.classList.contains("on")) renderCb(); } };
+  s.onload = () => { const b = document.getElementById("navCb"); if(b && window.CB){ b.style.display = ""; if(b.classList.contains("on")) renderCb(); try{ renderInfo(); }catch(e){} } };
   s.onerror = () => {}; document.head.appendChild(s); }
 function renderCb(){
   const el = $("#cb"), C = window.CB, F = window.FLOW;
