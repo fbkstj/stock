@@ -530,6 +530,7 @@ $("#q").addEventListener("input", renderList);
 $("#sortby").addEventListener("change", renderList);
 
 function select(code){
+  cbView = null;
   current = code; renderList(); renderInfo();
   if(tabNow() === "view") navPush();
   if(PRICES[code]){ renderChart(); return; }
@@ -584,10 +585,19 @@ function resizeCharts(){
   indChart.applyOptions({width:i.clientWidth,height:i.clientHeight});
 }
 let viewRows = [], maData = {};
+let cbView = null;   // 正在看哪一檔 CB 自己的 K 線(代號);null = 看現股
+const cbkOf = c => (window.CBK && window.CBK.bonds && window.CBK.bonds[c]) || null;
+let cbkP = null;
+function ensureCbk(){
+  if(window.CBK) return Promise.resolve();
+  if(!cbkP) cbkP = new Promise(res => { const sc = document.createElement("script"); sc.src = "data/cbk.js"; sc.onload = () => res(); sc.onerror = () => res(); document.head.appendChild(sc); });
+  return cbkP;
+}
 function renderChart(){
   initCharts();
-  const d = PRICES[current], name = nameOf(current);
-  $("#ttl").textContent = `${name} ${current}`;
+  const cbk = cbView ? cbkOf(cbView) : null;
+  const d = cbk ? {rows: cbk.r, symbol: "CB " + cbView} : PRICES[current], name = nameOf(current);
+  $("#ttl").textContent = cbk ? `${cbk.n} ${cbView}(轉換公司債 · 標的 ${name} ${current})` : `${name} ${current}`;
   if(!d){ S_c.setData([]); S_v.setData([]); $("#legend").textContent="無股價資料"; return; }
   viewRows = aggregate(d.rows, period);
   S_c.setData(viewRows.map(r=>({time:r[0],open:r[1],high:r[2],low:r[3],close:r[4]})));
@@ -624,8 +634,9 @@ function renderInd(){
       pad(volMA(viewRows,5)));
     lab.textContent = "成交量(張)· 5 期均量";
   } else {
-    const a = instAgg(current);
-    if(!a){ lab.textContent = "法人買賣超:此標的無資料(請執行更新法人資料.bat)"; }
+    const a = cbView ? null : instAgg(current);
+    if(cbView){ lab.textContent = "法人買賣超:CB 沒有法人資料,請切回現股"; }
+    else if(!a){ lab.textContent = "法人買賣超:此標的無資料(請執行更新法人資料.bat)"; }
     else {
       const sum = x => x.f+x.t+x.d;
       add("addHistogramSeries",{priceLineVisible:false,lastValueVisible:false,priceFormat:{type:"volume"}},
@@ -648,7 +659,7 @@ function updateLegend(p){
   MAS.forEach(m => { if(!maOn[m.n]) return; const x = maData[m.n].find(v=>v.time===r[0]); if(x) h += `<span style="color:${m.c}">MA${m.n} ${fmt(x.value)}</span>  `; });
   if(bbOn && bbData){ const u=bbData.U.find(v=>v.time===r[0]), l=bbData.L.find(v=>v.time===r[0]);
     if(u&&l) h += `<span style="color:#94a3b8">BB ${fmt(u.value)} / ${fmt(l.value)}</span>  `; }
-  if(indMode==="INST"){ const a=instAgg(current), x=a&&a.find(v=>v.time===r[0]);
+  if(indMode==="INST" && !cbView){ const a=instAgg(current), x=a&&a.find(v=>v.time===r[0]);
     if(x&&x.f!=null){ const t=x.f+x.t+x.d;
       const dg = a.unit==="億" ? 1 : 0;
       h += `<br><span class="mute">法人(${a.unit})</span> 外資 <span class="${cls(x.f)}">${fmt(x.f,dg)}</span>  投信 <span class="${cls(x.t)}">${fmt(x.t,dg)}</span>  自營 <span class="${cls(x.d)}">${fmt(x.d,dg)}</span>  合計 <span class="${cls(t)}">${fmt(t,dg)}</span>`; } }
@@ -704,8 +715,16 @@ function renderInfo(){
   if(cbs.length){
     const stT = {priced:"已定價 / 掛牌", filed:"已送件", board:"董事會通過"};
     const sh = window.CB.shares[current], px = d ? lastInfo(current).c : (fs ? fs.c : null);
-    h += `<h3>相關 CB(${cbs.length})</h3>` + cbs.map(c => {
+    if(!window.CBK) ensureCbk().then(() => { if(window.CBK) renderInfo(); });
+    h += `<h3>相關 CB(${cbs.length})</h3>` + (cbView ? `<div style="margin-bottom:8px"><button class="rkp" data-cbback="1">← 回到現股 K 線</button></div>` : "") + cbs.map(c => {
       const mon = c.conv && px ? (px / c.conv - 1) * 100 : null, dil = c.conv && sh ? c.vol / c.conv / sh * 100 : null;
+      const bk = cbkOf(c.cb), last = bk && bk.r.length ? bk.r[bk.r.length-1] : null, prev = bk && bk.r.length > 1 ? bk.r[bk.r.length-2] : null;
+      const parity = c.conv && px ? px / c.conv * 100 : null, prem = last && parity ? (last[4] / parity - 1) * 100 : null;
+      const cbRows = !bk ? "" : `<div>CB 收盤</div><div>${last ? `<b>${fmt(last[4],2)}</b> <span class="${cls(prev?last[4]-prev[4]:0)}">${prev?(last[4]-prev[4]>=0?"+":"")+fmt(last[4]-prev[4],2):""}</span> <span class="mute">${last[0]} · 量 ${fmt(last[5],0)} 張</span>` : "—"}</div>
+        ${parity!=null ? `<div>轉換價值 / 溢價率</div><div>${fmt(parity,1)} · <span class="${cls(prem)}">${prem==null?"—":(prem>=0?"溢價 ":"折價 ")+fmt(Math.abs(prem),1)+"%"}</span></div>` : ""}
+        ${bk.putPx ? `<div>賣回權</div><div style="white-space:normal">${esc(bk.putFrom)} ~ ${esc(bk.putTo)} · ${fmt(bk.putPx,2)}</div>` : ""}
+        ${bk.bal ? `<div>發行餘額</div><div>${fmt(bk.bal/1e8,2)} 億</div>` : ""}
+        <div></div><div><button class="rkp" data-cb="${esc(c.cb)}"${bk.r.length?"":" disabled"}>看 CB K 線(${bk.r.length} 日)</button></div>`;
       return `<div class="kv" style="margin-bottom:8px">
         <div>${esc(c.name)}</div><div>${esc(c.cb)} · ${esc(c.kind)} · <b>${esc(stT[c.stage])}</b></div>
         <div>發行量</div><div>${c.vol==null?"—":fmt(c.vol,1)+" 億"}${c.term?" · "+esc(c.term):""}</div>
@@ -716,8 +735,9 @@ function renderInfo(){
         ${c.board ? `<div>董事會</div><div>${esc(c.board)}</div>` : ""}
         <div>主辦 / 評等</div><div style="white-space:normal">${esc(c.lead||"—")} / ${esc(c.tcri||"—")}</div>
         ${c.put ? `<div>賣回條件</div><div style="white-space:normal">${esc(c.put)}</div>` : ""}
-        ${c.note ? `<div>備註</div><div style="white-space:normal">${esc(c.note)}</div>` : ""}</div>`;
-    }).join("") + `<div class="note">CB 本身的成交價與 K 線需另取櫃買中心行情,目前未接入。</div>`;
+        ${c.note ? `<div>備註</div><div style="white-space:normal">${esc(c.note)}</div>` : ""}
+        ${cbRows}</div>`;
+    }).join("") + `<div class="note">CB 行情取自櫃買中心「轉(交)換債日統計報表」(買賣斷、含議價與鉅額),量為張數;未掛牌的 CB 沒有行情。</div>`;
   }
   if(!iv && fs){
     h += `<h3>三大法人買賣超(億元,估算)</h3><table style="font-size:calc(12px*var(--fs))"><thead><tr><th></th><th class="n">外資</th><th class="n">投信</th><th class="n">自營</th></tr></thead><tbody>` +
@@ -1105,11 +1125,14 @@ function renderCb(){
   const el = $("#cb"), C = window.CB, F = window.FLOW;
   if(!C){ el.innerHTML = '<div class="headline">尚無 CB 資料,請執行 python build_cb.py。</div>'; return; }
   const wlSet = new Set(WL.map(x => x.code));
+  if(!window.CBK) ensureCbk().then(() => { if(window.CBK && tabNow()==="cb") renderCb(); });
   const rows = C.cases.map(c => {
     const f = F && F.stocks[c.code], px = f ? f.c : null, sh = C.shares[c.code];
+    const bk = cbkOf(c.cb), lastRow = bk && bk.r.length ? bk.r[bk.r.length-1] : null;
+    const parity = c.conv && px ? px / c.conv * 100 : null;
     const z = f && f.z && f.z[20] ? f.z[20][0] + f.z[20][1] : null;
     const cap = sh && px ? px * sh : null;            // 市值(億元)
-    return {...c, px, r20:f ? f.r : null, z, mc:cap,
+    return {...c, px, r20:f ? f.r : null, z, mc:cap, cbpx: lastRow ? lastRow[4] : null, cbprem: lastRow && parity ? (lastRow[4] / parity - 1) * 100 : null,
       moneyness: c.conv && px ? (px / c.conv - 1) * 100 : null,           // 現價相對轉換價,正 = 價內
       dil: c.conv && sh ? c.vol / c.conv / sh * 100 : null,               // 全數轉換的潛在稀釋(%)
       size: cap ? c.vol / cap * 100 : null};                               // 發行量占市值(%)
@@ -1124,14 +1147,15 @@ function renderCb(){
     if(!list.length || (cbState.stage!=="all" && cbState.stage!==st)) return "";
     return `<h3 style="margin:16px 0 6px">${stageTxt[st]}(${list.length} 件,合計 ${fmt(list.reduce((s,r)=>s+(r.vol||0),0),1)} 億)</h3>
     <div class="tbl"><table><thead><tr><th>個股</th><th>CB</th><th>方式</th><th class="n">發行量(億)</th>
-      ${st==="board" ? '<th class="n">股本(億)</th>' : '<th class="n">轉換價</th><th class="n">現價 vs 轉換價</th><th class="n">潛在稀釋</th>'}
+      ${st==="board" ? '<th class="n">股本(億)</th>' : '<th class="n">轉換價</th><th class="n">現價 vs 轉換價</th><th class="n">潛在稀釋</th><th class="n">CB 價 / 溢價率</th>'}
       <th class="n">現價</th><th class="n">占市值</th><th class="n">20日漲幅</th><th class="n">外+投20日(張)</th><th class="n">60日波動</th>
       <th>${st==="board" ? "董事會日" : "掛牌 / 可拆解"}</th><th>主辦 / 評等</th><th>年期 · 賣回 · 備註</th></tr></thead><tbody>
       ${list.map(r => `<tr class="clk" data-c="${r.code}"><td><b>${esc(r.name.replace(/[一二三四五六七八九十]+(KY)?$/,"")||r.name)}</b> <span class="mute">${r.code}</span>${wlSet.has(r.code)?' <span class="tagc w">自選</span>':''}</td>
         <td class="mute">${esc(r.cb)}<br>${esc(r.name)}</td><td>${esc(r.kind)}</td><td class="n"><b>${fm(r.vol,1)}</b></td>
         ${st==="board" ? `<td class="n">${fm(r.cap,1)}</td>` : `<td class="n">${fm(r.conv,1)}</td>
           <td class="n ${r.moneyness==null?"":cls(r.moneyness)}">${r.moneyness==null?"—":(r.moneyness>0?"價內 ":"價外 ")+fmt(Math.abs(r.moneyness),1)+"%"}</td>
-          <td class="n">${r.dil==null?"—":fmt(r.dil,1)+"%"}</td>`}
+          <td class="n">${r.dil==null?"—":fmt(r.dil,1)+"%"}</td>
+          <td class="n">${r.cbpx==null?'<span class="mute">未掛牌</span>':fmt(r.cbpx,2)+(r.cbprem==null?"":` <span class="${cls(r.cbprem)}">(${r.cbprem>=0?"溢":"折"}${fmt(Math.abs(r.cbprem),1)}%)</span>`)}</td>`}
         <td class="n">${fm(r.px,2)}</td><td class="n">${r.size==null?"—":fmt(r.size,1)+"%"}</td>
         <td class="n ${cls(r.r20)}">${r.r20==null?"—":pct(r.r20)}</td><td class="n ${cls(r.z)}">${r.z==null?"—":fmt(r.z,0)}</td><td class="n">${r.vol60==null?"—":fmt(r.vol60,0)}</td>
         <td style="font-size:calc(12px*var(--fs))">${st==="board" ? esc(r.board||"—") : esc(r.listed||"未定")+'<br><span class="mute">'+esc(r.ungroup||"")+"</span>"}</td>
@@ -1151,6 +1175,11 @@ function renderCb(){
     <div class="tbl"><table><thead><tr><th>分組</th><th class="n">樣本</th><th class="n">前 20 日 中位</th><th class="n">上漲比例</th><th class="n">後 5 日 中位</th><th class="n">上漲比例</th><th class="n">後 20 日 中位</th><th class="n">上漲比例</th></tr></thead><tbody>${stT}</tbody></table></div>
     <div class="note">統計為中位數與上漲比例,樣本多落在近一年多頭行情,只能看出關聯,不代表因果。發行前股價通常已先上漲;轉換溢價高、發行量大的案件掛牌後表現較弱。</div>`;
 }
+$("#info").addEventListener("click", e => {
+  const b = e.target.closest("[data-cb]");
+  if(b){ if(!b.disabled){ cbView = b.dataset.cb; renderChart(); renderInfo(); } return; }
+  if(e.target.closest("[data-cbback]")){ cbView = null; renderChart(); renderInfo(); }
+});
 $("#cb").addEventListener("click", e => {
   const sg = e.target.closest(".seg button");
   if(sg){ cbState[sg.parentNode.dataset.id] = sg.dataset.k; renderCb(); return; }
