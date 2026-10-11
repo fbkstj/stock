@@ -237,6 +237,7 @@ td.clk{cursor:pointer}
     <button data-t="view">看盤 K 線</button>
     <button data-t="flow">資金流向</button>
     <button data-t="top">每日前15名</button>
+    <button data-t="tech">技術面選股</button>
     <button data-t="rank">買超排行</button>
     <button data-t="tables">總覽表</button>
     <button data-t="cmp">台美對照</button>
@@ -284,6 +285,7 @@ td.clk{cursor:pointer}
 </section>
 
 <section class="tab" id="t-flow"><div class="page"><div class="wrap" id="flow"></div></div></section>
+<section class="tab" id="t-tech"><div class="page"><div class="wrap" id="tech"></div></div></section>
 <section class="tab" id="t-top"><div class="page"><div class="wrap" id="top15"></div></div></section>
 <section class="tab" id="t-rank"><div class="page"><div class="wrap" id="rank"></div></div></section>
 <section class="tab" id="t-tables"><div class="page"><div class="wrap" id="tables"></div></div></section>
@@ -301,6 +303,7 @@ td.clk{cursor:pointer}
 <script src="data/inst.js"></script>
 <script src="data/flow.js"></script>
 <script src="data/gindex.js"></script>
+<script src="data/tech.js"></script>
 <script src="data/digest.js"></script>
 <script src="data/us.js"></script>
 <script src="data/us_map.js"></script>
@@ -360,6 +363,7 @@ $("#nav").addEventListener("click", e => {
   if(b.dataset.t==="udn") renderUdn();
   if(b.dataset.t==="rank") renderRank();
   if(b.dataset.t==="top") renderTop();
+  if(b.dataset.t==="tech") renderTech();
   if(b.dataset.t==="arena") renderArena();
   if(b.dataset.t==="ccl") renderCcl();   // 分頁顯示後才畫圖,避免寬度為 0
   navPush();
@@ -1067,6 +1071,52 @@ $("#rank").addEventListener("change", e => {
     else delete rkDraft.chk[k];
     renderRank();
   }
+});
+
+// ---------- 技術面選股:均線糾結、日/週/月 KD 轉多、突破平台第一根(資料 data/tech.js,由 scan_tech.py 產生) ----------
+const tcState = {s3:3, dkd:"cross", wkd:"bull", mkd:"bull", pb:"any", minV:1000, sort:"s3", top:50};
+try { const s = JSON.parse(localStorage.getItem("tcState") || "null"); if(s && typeof s === "object") Object.assign(tcState, s); } catch(e){}
+function renderTech(){
+  const el = $("#tech"), T = window.TECH;
+  if(!T){ el.innerHTML = '<div class="headline">尚無資料,請執行 update_all.bat(scan_tech.py)。</div>'; return; }
+  try { localStorage.setItem("tcState", JSON.stringify(tcState)); } catch(e){}
+  const wlSet = new Set(WL.map(x => x.code));
+  const kdOk = (s, mode, n) => mode==="any" || (!!s && s[0] > s[1] && (mode==="bull" || (s[2] != null && s[2] <= n)));
+  const rows = T.rows.filter(x => (!tcState.s3 || x.s3 <= tcState.s3) && kdOk(x.d, tcState.dkd, 2) && kdOk(x.w, tcState.wkd, 1) && kdOk(x.m, tcState.mkd, 1)
+    && (tcState.pb==="any" || (x.pb && (tcState.pb==="today" ? x.pb[0]===0 : true))) && (!tcState.minV || x.v20 >= tcState.minV));
+  const SK = {s3:(a,b) => a.s3 - b.s3, vr:(a,b) => ((b.pb||[0,0,0,0])[3]) - ((a.pb||[0,0,0,0])[3]), v:(a,b) => b.v20 - a.v20, r:(a,b) => (b.r20||-999) - (a.r20||-999)};
+  rows.sort(SK[tcState.sort]);
+  const shown = rows.slice(0, tcState.top);
+  const seg = (id, items, cur) => `<div class="seg" data-id="${id}">${items.map(([k,t])=>`<button data-k="${k}" class="${String(cur)===String(k)?'on':''}">${t}</button>`).join("")}</div>`;
+  const kdTxt = (s, n) => !s ? '<span class="mute">—</span>' : `<span class="${s[0]>s[1]?'up':'dn'}">${fmt(s[0],0)}/${fmt(s[1],0)}</span>` + (s[0]>s[1] ? (s[2]==null ? "" : ` <span class="mute">${s[2]===0?"剛交叉":"交叉"+s[2]+n}</span>`) : "");
+  el.innerHTML = `
+    <div class="note" style="margin:0 0 8px">全市場約 ${T.meta.n} 檔(均線糾結度 ≤ ${T.meta.loose}% 或有突破平台者);資料至 ${esc(T.meta.asof)},日 K 約 1 年,週 K 由日 K 聚合,月 K 取自 Yahoo 5 年月線。
+      <b>均線糾結度</b> = 5、10、20 日均線的最大值與最小值之差 ÷ 收盤價。<b>KD</b> 為 (9,3,3),K 由下往上穿越 D 為黃金交叉,「交叉 N 日/週/月」為距今根數。
+      <b>突破平台第一根</b>:前 ${T.meta.plat.days} 個交易日(不含突破日)振幅 ≤ ${T.meta.plat.range}%,收盤第一次站上平台最高價,且量 ≥ 平台均量 ${T.meta.plat.vol} 倍。僅為技術面統計,不構成買賣建議。</div>
+    <div class="fl-ctl"><span class="lab">均線糾結度</span>${seg("s3", [[0,"不限"],[1,"≤ 1%"],[2,"≤ 2%"],[3,"≤ 3%"],[5,"≤ 5%"]], tcState.s3)}
+      <span class="lab">日 KD</span>${seg("dkd", [["any","不限"],["bull","K>D"],["cross","近 3 日黃金交叉"]], tcState.dkd)}</div>
+    <div class="fl-ctl"><span class="lab">週 KD</span>${seg("wkd", [["any","不限"],["bull","K>D"],["cross","近 2 週黃金交叉"]], tcState.wkd)}
+      <span class="lab">月 KD</span>${seg("mkd", [["any","不限"],["bull","K>D"],["cross","近 2 月黃金交叉"]], tcState.mkd)}
+      <span class="lab">突破平台第一根</span>${seg("pb", [["any","不限"],["today","今日"],["3d","近 3 日"]], tcState.pb)}</div>
+    <div class="fl-ctl"><span class="lab">20日均量至少(張)</span>${seg("minV", [[0,"不限"],[300,"300"],[1000,"1,000"],[3000,"3,000"]], tcState.minV)}
+      <span class="lab">排序</span>${seg("sort", [["s3","糾結度小→大"],["vr","突破量比"],["v","均量"],["r","20日漲幅"]], tcState.sort)}
+      <span class="lab">顯示</span>${seg("top", [[30,"前 30"],[50,"前 50"],[100,"前 100"]], tcState.top)}</div>
+    <div class="note" style="margin:0 0 8px"><b>符合條件 ${rows.length} 檔</b>,顯示前 ${shown.length} 檔。點任一列看 K 線。</div>
+    <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">20日漲幅</th><th class="n">糾結度</th><th class="n">MA5</th><th class="n">MA10</th><th class="n">MA20</th><th class="n">MA60</th>
+      <th>日 KD(K/D)</th><th>週 KD</th><th>月 KD</th><th>突破平台</th><th class="n">20日均量(張)</th></tr></thead><tbody>
+    ${shown.map((x,i) => `<tr class="clk" data-c="${x.c}"><td class="mute">${i+1}</td>
+      <td><b>${esc(x.n)}</b> <span class="mute">${x.c}</span>${wlSet.has(x.c) ? ' <span class="tagc w">自選</span>' : ''}</td>
+      <td class="n">${fmt(x.px)}</td><td class="n ${cls(x.r20)}">${x.r20==null?"—":pct(x.r20)}</td><td class="n"><b>${fmt(x.s3,2)}%</b></td>
+      ${x.ma.map(v => `<td class="n">${v==null?"—":fmt(v)}</td>`).join("")}
+      <td>${kdTxt(x.d,"日")}</td><td>${kdTxt(x.w,"週")}</td><td>${kdTxt(x.m,"月")}</td>
+      <td>${x.pb ? `<span class="up">${x.pb[0]===0?"今日":"前"+x.pb[0]+"日"}</span> <span class="mute">量${fmt(x.pb[3],1)}倍 突破+${fmt(x.pb[4],1)}% 平台高${fmt(x.pb[1])}</span>` : '<span class="mute">—</span>'}</td>
+      <td class="n">${fmt(x.v20,0)}</td></tr>`).join("") || '<tr><td colspan="14" class="mute">沒有符合條件的個股,請放寬條件</td></tr>'}
+    </tbody></table></div>`;
+}
+$("#tech").addEventListener("click", e => {
+  const sg = e.target.closest(".seg button");
+  if(sg){ const id = sg.parentNode.dataset.id; tcState[id] = ["dkd","wkd","mkd","pb","sort"].includes(id) ? sg.dataset.k : +sg.dataset.k; renderTech(); return; }
+  const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c);
 });
 
 // ---------- 每日前 15 名:全市場買超張數、外資投信同買,3 / 5 / 10 / 20 日 ----------
