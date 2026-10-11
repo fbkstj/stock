@@ -236,6 +236,7 @@ td.clk{cursor:pointer}
     <button data-t="summary" class="on">重點摘要</button>
     <button data-t="view">看盤 K 線</button>
     <button data-t="flow">資金流向</button>
+    <button data-t="cb" id="navCb" style="display:none">CB 案件</button>
     <button data-t="top">每日前15名</button>
     <button data-t="tech">技術面選股</button>
     <button data-t="rank">買超排行</button>
@@ -286,6 +287,7 @@ td.clk{cursor:pointer}
 
 <section class="tab" id="t-flow"><div class="page"><div class="wrap" id="flow"></div></div></section>
 <section class="tab" id="t-tech"><div class="page"><div class="wrap" id="tech"></div></div></section>
+<section class="tab" id="t-cb"><div class="page"><div class="wrap" id="cb"></div></div></section>
 <section class="tab" id="t-top"><div class="page"><div class="wrap" id="top15"></div></div></section>
 <section class="tab" id="t-rank"><div class="page"><div class="wrap" id="rank"></div></div></section>
 <section class="tab" id="t-tables"><div class="page"><div class="wrap" id="tables"></div></div></section>
@@ -364,6 +366,7 @@ $("#nav").addEventListener("click", e => {
   if(b.dataset.t==="rank") renderRank();
   if(b.dataset.t==="top") renderTop();
   if(b.dataset.t==="tech") renderTech();
+  if(b.dataset.t==="cb") renderCb();
   if(b.dataset.t==="arena") renderArena();
   if(b.dataset.t==="ccl") renderCcl();   // 分頁顯示後才畫圖,避免寬度為 0
   navPush();
@@ -1071,6 +1074,67 @@ $("#rank").addEventListener("change", e => {
     else delete rkDraft.chk[k];
     renderRank();
   }
+});
+
+// ---------- CB 案件:發行進度與現股的關係(資料 data/cb.js 由 build_cb.py 產生,僅本機,不發布) ----------
+const cbState = {sort:"listed", stage:"all"};
+{ const s = document.createElement("script"); s.src = "data/cb.js";
+  s.onload = () => { const b = document.getElementById("navCb"); if(b && window.CB){ b.style.display = ""; if(b.classList.contains("on")) renderCb(); } };
+  s.onerror = () => {}; document.head.appendChild(s); }
+function renderCb(){
+  const el = $("#cb"), C = window.CB, F = window.FLOW;
+  if(!C){ el.innerHTML = '<div class="headline">尚無 CB 資料,請執行 python build_cb.py。</div>'; return; }
+  const wlSet = new Set(WL.map(x => x.code));
+  const rows = C.cases.map(c => {
+    const f = F && F.stocks[c.code], px = f ? f.c : null, sh = C.shares[c.code];
+    const z = f && f.z && f.z[20] ? f.z[20][0] + f.z[20][1] : null;
+    const cap = sh && px ? px * sh : null;            // 市值(億元)
+    return {...c, px, r20:f ? f.r : null, z, mc:cap,
+      moneyness: c.conv && px ? (px / c.conv - 1) * 100 : null,           // 現價相對轉換價,正 = 價內
+      dil: c.conv && sh ? c.vol / c.conv / sh * 100 : null,               // 全數轉換的潛在稀釋(%)
+      size: cap ? c.vol / cap * 100 : null};                               // 發行量占市值(%)
+  });
+  const stageTxt = {priced:"已定價(詢圈 / 競拍 / 掛牌)", filed:"已送件、尚未定價", board:"董事會已通過、尚未送件"};
+  const sk = {listed:(a,b) => String(a.listed||"9999").localeCompare(String(b.listed||"9999")), dil:(a,b) => (b.dil||-1)-(a.dil||-1),
+    vol:(a,b) => (b.vol||0)-(a.vol||0), size:(a,b) => (b.size||-1)-(a.size||-1), r20:(a,b) => (b.r20||-999)-(a.r20||-999)};
+  const seg = (id, items, cur) => `<div class="seg" data-id="${id}">${items.map(([k,t])=>`<button data-k="${k}" class="${String(cur)===String(k)?'on':''}">${t}</button>`).join("")}</div>`;
+  const fm = (v,n=1) => v==null ? "—" : fmt(v,n);
+  const sect = st => {
+    const list = rows.filter(r => r.stage===st).sort(sk[cbState.sort]);
+    if(!list.length || (cbState.stage!=="all" && cbState.stage!==st)) return "";
+    return `<h3 style="margin:16px 0 6px">${stageTxt[st]}(${list.length} 件,合計 ${fmt(list.reduce((s,r)=>s+(r.vol||0),0),1)} 億)</h3>
+    <div class="tbl"><table><thead><tr><th>個股</th><th>CB</th><th>方式</th><th class="n">發行量(億)</th>
+      ${st==="board" ? '<th class="n">股本(億)</th>' : '<th class="n">轉換價</th><th class="n">現價 vs 轉換價</th><th class="n">潛在稀釋</th>'}
+      <th class="n">現價</th><th class="n">占市值</th><th class="n">20日漲幅</th><th class="n">外+投20日(張)</th><th class="n">60日波動</th>
+      <th>${st==="board" ? "董事會日" : "掛牌 / 可拆解"}</th><th>主辦 / 評等</th><th>年期 · 賣回 · 備註</th></tr></thead><tbody>
+      ${list.map(r => `<tr class="clk" data-c="${r.code}"><td><b>${esc(r.name.replace(/[一二三四五六七八九十]+(KY)?$/,"")||r.name)}</b> <span class="mute">${r.code}</span>${wlSet.has(r.code)?' <span class="tagc w">自選</span>':''}</td>
+        <td class="mute">${esc(r.cb)}<br>${esc(r.name)}</td><td>${esc(r.kind)}</td><td class="n"><b>${fm(r.vol,1)}</b></td>
+        ${st==="board" ? `<td class="n">${fm(r.cap,1)}</td>` : `<td class="n">${fm(r.conv,1)}</td>
+          <td class="n ${r.moneyness==null?"":cls(r.moneyness)}">${r.moneyness==null?"—":(r.moneyness>0?"價內 ":"價外 ")+fmt(Math.abs(r.moneyness),1)+"%"}</td>
+          <td class="n">${r.dil==null?"—":fmt(r.dil,1)+"%"}</td>`}
+        <td class="n">${fm(r.px,2)}</td><td class="n">${r.size==null?"—":fmt(r.size,1)+"%"}</td>
+        <td class="n ${cls(r.r20)}">${r.r20==null?"—":pct(r.r20)}</td><td class="n ${cls(r.z)}">${r.z==null?"—":fmt(r.z,0)}</td><td class="n">${r.vol60==null?"—":fmt(r.vol60,0)}</td>
+        <td style="font-size:calc(12px*var(--fs))">${st==="board" ? esc(r.board||"—") : esc(r.listed||"未定")+'<br><span class="mute">'+esc(r.ungroup||"")+"</span>"}</td>
+        <td style="font-size:calc(12px*var(--fs))">${esc(r.lead||"—")}<br><span class="mute">${esc(r.tcri)}</span></td>
+        <td style="font-size:calc(12px*var(--fs));color:var(--mute)">${esc([r.term, r.put, r.prem && st!=="board" ? "溢價 "+r.prem : "", r.note].filter(Boolean).join(" · "))}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  };
+  const stT = C.stats.map(s => `<tr><td>${esc(s.name)}</td><td class="n">${s.n}</td>
+    ${["pre20","post5","post20"].map(k => s[k] ? `<td class="n ${cls(s[k].med)}">${pct(s[k].med)}</td><td class="n">${s[k].up}%</td>` : "<td></td><td></td>").join("")}</tr>`).join("");
+  el.innerHTML = `
+    <div class="note" style="margin:0 0 8px">來源:${esc(C.src)}(基準日 ${esc(C.asof||"—")}),僅供本機參考,不發布到公開網站。現價、20 日漲幅、法人張數取自本系統最新資料(${F ? esc(F.last) : "—"})。
+      <b>價內</b> = 現價高於轉換價;<b>潛在稀釋</b> = 全數轉換增加的股數 ÷ 現有股數;<b>占市值</b> = 發行量 ÷ 現價市值。點任一列看 K 線。僅為統計整理,不構成買賣建議。</div>
+    <div class="fl-ctl"><span class="lab">排序</span>${seg("sort", [["listed","掛牌日"],["dil","潛在稀釋"],["size","占市值"],["vol","發行量"],["r20","20日漲幅"]], cbState.sort)}
+      <span class="lab">階段</span>${seg("stage", [["all","全部"],["priced","已定價"],["filed","已送件"],["board","董事會"]], cbState.stage)}</div>
+    ${sect("priced")}${sect("filed")}${sect("board")}
+    <h3 style="margin:18px 0 6px">掛牌前後的股價表現(近一年 ${C.evN} 檔已發行案件,以掛牌日收盤為基準)</h3>
+    <div class="tbl"><table><thead><tr><th>分組</th><th class="n">樣本</th><th class="n">前 20 日 中位</th><th class="n">上漲比例</th><th class="n">後 5 日 中位</th><th class="n">上漲比例</th><th class="n">後 20 日 中位</th><th class="n">上漲比例</th></tr></thead><tbody>${stT}</tbody></table></div>
+    <div class="note">統計為中位數與上漲比例,樣本多落在近一年多頭行情,只能看出關聯,不代表因果。發行前股價通常已先上漲;轉換溢價高、發行量大的案件掛牌後表現較弱。</div>`;
+}
+$("#cb").addEventListener("click", e => {
+  const sg = e.target.closest(".seg button");
+  if(sg){ cbState[sg.parentNode.dataset.id] = sg.dataset.k; renderCb(); return; }
+  const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c);
 });
 
 // ---------- 技術面選股:均線糾結、日/週/月 KD 轉多、突破平台第一根(資料 data/tech.js,由 scan_tech.py 產生) ----------
