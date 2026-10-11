@@ -899,7 +899,7 @@ function renderCmp(){
 $("#cmp").addEventListener("click", e => { const t = e.target.closest("[data-c]"); if(t) gotoStock(t.dataset.c); });
 
 // ---------- 外資+投信買超排行(固定表) ----------
-const rkState = {win:20, top:30, ind:"全部", watch:false, sort:"ft", minStreak:0, chk:{}, g4:"any", g1k:"any", minFt:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"};
+const rkState = {win:20, top:30, ind:"全部", watch:false, sort:"zft", minStreak:0, chk:{}, g4:"any", g1k:"any", minFt:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"};
 const RK_STR = new Set(["sort","g4","g1k","minYoy","nearHi"]);
 // 條件勾選:勾 2 個以上取交集(AND);買超/賣超互斥
 const RK_CHK = [
@@ -916,6 +916,7 @@ const RK_PRESET = {
   reset:{chk:{}, g4:"any", g1k:"any", minFt:0, minStreak:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"}
 };
 try { const s = JSON.parse(localStorage.getItem("rkState") || "null"); if(s && typeof s === "object") Object.assign(rkState, s, {chk: Object.assign({}, s.chk)}); } catch(e){}
+let rkDraft = JSON.parse(JSON.stringify(rkState));   // 勾選中的條件;按「確定」才套用到 rkState
 // 由最新一天往回數連續買超(正)或賣超(負)的交易日數;最新一天為 0 則回傳 0
 function streak(arr){
   if(!arr || !arr.length) return 0;
@@ -931,20 +932,24 @@ function epsNum(txt){            // 自選股的明年 EPS 預估文字 → 數�
   if(!nums.length) return null;
   return String(txt).includes("~") && nums.length >= 2 ? (nums[0]+nums[1])/2 : nums[0];
 }
+function applyRank(){ Object.assign(rkState, JSON.parse(JSON.stringify(rkDraft))); renderRank(); }
 function renderRank(){
   const el = $("#rank"), F = window.FLOW;
   if(!F){ el.innerHTML = '<div class="headline">尚無資料,請執行 update_all.bat。</div>'; return; }
   const tmap = {}; Object.entries(F.theme).forEach(([g,o]) => o.codes.forEach(c => (tmap[c] = tmap[c]||[]).push(g)));
   const wlBy = {}; WL.forEach(x => wlBy[x.code] = x);
+  const D = rkDraft;
+  const dirty = JSON.stringify(rkDraft) !== JSON.stringify(rkState);
   const w = rkState.win;
   try { localStorage.setItem("rkState", JSON.stringify(rkState)); } catch(e){}
   let all = Object.entries(F.stocks).filter(([c,x]) => x.i).map(([c,x]) => {
     const a = x.w[w], ft = a[0] + a[1];
+    const zz = x.z && x.z[w] ? x.z[w] : [0,0,0], zft = zz[0] + zz[1];   // 張數
     const wl = wlBy[c], eps = wl ? epsNum(wl.eps27) : null;
     const dd = x.d || [];
     const qi = {1:1,5:2,10:3,20:4,60:5}[w];
     const b = x.b || [];
-    return {c, x, f:a[0], t:a[1], d3:a[2], ft, tot:a[0]+a[1]+a[2], eps, pe: eps && eps > 0 ? x.c/eps : null, wl:!!wl,
+    return {c, x, f:a[0], t:a[1], d3:a[2], ft, zft, zf:zz[0], zt:zz[1], tot:a[0]+a[1]+a[2], eps, pe: eps && eps > 0 ? x.c/eps : null, wl:!!wl,
       p4:b[0], d4w:b[1], d4m:b[2], p1:b[3], d1w:b[4], d1m:b[5], h4:b[6], dh4:b[7],
       q: x.q ? x.q[0] : null, dq: x.q ? x.q[qi] : null,
       sf: streak(dd.map(v => v[0])), st: streak(dd.map(v => v[1])), sft: streak(dd.map(v => v[0] + v[1]))};
@@ -961,10 +966,10 @@ function renderRank(){
   const actChk = RK_CHK.filter(([k]) => ck[k]);
   const dirOk = r => actChk.every(([k]) => CHK_FN[k](r));
   const gOk = (v, m) => m==="any" || (v!=null && ((m==="up" && v>0) || (m==="down" && v<0) || (m!=="up" && m!=="down" && v >= +m)));
-  const SK = {ft:r=>r.ft, sft:r=>r.sft*1e4 + r.ft, sf:r=>r.sf*1e4 + r.f, st:r=>r.st*1e4 + r.t, sq:r=>r.dq==null ? -1e9 : r.dq,
+  const SK = {zft:r=>r.zft, ft:r=>r.ft, sft:r=>r.sft*1e4 + r.ft, sf:r=>r.sf*1e4 + r.f, st:r=>r.st*1e4 + r.t, sq:r=>r.dq==null ? -1e9 : r.dq,
     b4:r=>r.d4w==null ? -1e9 : r.d4w, b1:r=>r.d1w==null ? -1e9 : r.d1w};
   const sellSide = !!ck.fSell || (!!ck.tSell && !ck.fBuy);   // 找賣超時,金額最大的賣超排最前面
-  all.sort((a,b) => (rkState.sort === "ft" && sellSide) ? a.ft - b.ft : SK[rkState.sort](b) - SK[rkState.sort](a));
+  all.sort((a,b) => ((rkState.sort === "ft" || rkState.sort === "zft") && sellSide) ? SK[rkState.sort](a) - SK[rkState.sort](b) : SK[rkState.sort](b) - SK[rkState.sort](a));
   const themes = ["全部"].concat(Object.keys(F.theme).sort((a,b) => a.localeCompare(b, "zh-Hant")));
   let list = all.filter(r => (rkState.ind==="全部" || r.x.i===rkState.ind) && (!rkState.watch || r.wl)
     && (rkState.theme==="全部" || (tmap[r.c] || []).includes(rkState.theme))
@@ -981,11 +986,11 @@ function renderRank(){
   el.innerHTML = `
     <div class="note" style="margin:0 0 8px">依「外資 + 投信」近 ${w} 個交易日的淨買超金額排序(也可改依連續買超天數;金額 = 淨買賣超張數 × 當日收盤價,估算,單位億元);資料至 ${F.last}。不含自營商與散戶。</div>
     <div class="fl-ctl">
-      <span class="lab">期間</span>${seg("win", [[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], rkState.win)}
-      <span class="lab">顯示</span>${seg("top", [[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], rkState.top)}
-      <span class="lab">產業別</span><select id="rkInd" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${inds.map(i=>`<option ${i===rkState.ind?'selected':''}>${esc(i)}</option>`).join("")}</select>
-      <span class="lab">題材族群</span><select id="rkTheme" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${themes.map(i=>`<option ${i===rkState.theme?'selected':''}>${esc(i)}</option>`).join("")}</select>
-      <label style="cursor:pointer"><input type="checkbox" id="rkWatch" ${rkState.watch?'checked':''}> 只看自選股</label>
+      <span class="lab">期間</span>${seg("win", [[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], D.win)}
+      <span class="lab">顯示</span>${seg("top", [[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], D.top)}
+      <span class="lab">產業別</span><select id="rkInd" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${inds.map(i=>`<option ${i===D.ind?'selected':''}>${esc(i)}</option>`).join("")}</select>
+      <span class="lab">題材族群</span><select id="rkTheme" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${themes.map(i=>`<option ${i===D.theme?'selected':''}>${esc(i)}</option>`).join("")}</select>
+      <label style="cursor:pointer"><input type="checkbox" id="rkWatch" ${D.watch?'checked':''}> 只看自選股</label>
     </div>
     <div class="fl-ctl">
       <span class="lab">快速條件</span>
@@ -997,34 +1002,38 @@ function renderRank(){
     </div>
     <div class="fl-ctl">
       <span class="lab">條件勾選(可複選,取交集)</span>
-      ${RK_CHK.map(([k,t]) => `<label style="cursor:pointer;border:1px solid ${ck[k]?'var(--accent,#4ea1ff)':'var(--line)'};border-radius:6px;padding:4px 10px;white-space:nowrap"><input type="checkbox" data-chk="${k}" ${ck[k]?'checked':''}> ${k==="streak"?`外+投連買 ≥ ${minSt} 日`:t}</label>`).join("")}
+      ${RK_CHK.map(([k,t]) => `<label style="cursor:pointer;border:1px solid ${D.chk[k]?'var(--accent,#4ea1ff)':'var(--line)'};border-radius:6px;padding:4px 10px;white-space:nowrap"><input type="checkbox" data-chk="${k}" ${D.chk[k]?'checked':''}> ${k==="streak"?`外+投連買 ≥ ${D.minStreak||3} 日`:t}</label>`).join("")}
     </div>
     <div class="fl-ctl">
-      <span class="lab">外+投買(賣)超至少(億)</span>${seg("minFt", [[0,"不限"],[5,"5"],[10,"10"],[30,"30"],[50,"50"]], rkState.minFt)}
+      <span class="lab">外+投買(賣)超至少(億)</span>${seg("minFt", [[0,"不限"],[5,"5"],[10,"10"],[30,"30"],[50,"50"]], D.minFt)}
     </div>
     <div class="fl-ctl">
-      <span class="lab">20日漲幅上限</span>${seg("maxR", [[0,"不限"],[5,"≤ 5%"],[10,"≤ 10%"],[15,"≤ 15%"],[30,"≤ 30%"]], rkState.maxR)}
-      <span class="lab">營收年增</span>${seg("minYoy", [["any","不限"],["0","≥ 0%"],["20","≥ 20%"],["50","≥ 50%"]], rkState.minYoy)}
-      <span class="lab">距近60日高點</span>${seg("nearHi", [["any","不限"],["5","≤ 5%"],["10","≤ 10%"],["20","≤ 20%"]], rkState.nearHi)}
+      <span class="lab">20日漲幅上限</span>${seg("maxR", [[0,"不限"],[5,"≤ 5%"],[10,"≤ 10%"],[15,"≤ 15%"],[30,"≤ 30%"]], D.maxR)}
+      <span class="lab">營收年增</span>${seg("minYoy", [["any","不限"],["0","≥ 0%"],["20","≥ 20%"],["50","≥ 50%"]], D.minYoy)}
+      <span class="lab">距近60日高點</span>${seg("nearHi", [["any","不限"],["5","≤ 5%"],["10","≤ 10%"],["20","≤ 20%"]], D.nearHi)}
     </div>
     <div class="fl-ctl">
-      <span class="lab">400 張大戶週變化</span>${seg("g4", [["any","不限"],["up","增加"],["0.3","≥ +0.3pt"],["1","≥ +1pt"],["down","減少"]], rkState.g4)}
-      <span class="lab">1000 張大戶週變化</span>${seg("g1k", [["any","不限"],["up","增加"],["0.3","≥ +0.3pt"],["1","≥ +1pt"],["down","減少"]], rkState.g1k)}
+      <span class="lab">400 張大戶週變化</span>${seg("g4", [["any","不限"],["up","增加"],["0.3","≥ +0.3pt"],["1","≥ +1pt"],["down","減少"]], D.g4)}
+      <span class="lab">1000 張大戶週變化</span>${seg("g1k", [["any","不限"],["up","增加"],["0.3","≥ +0.3pt"],["1","≥ +1pt"],["down","減少"]], D.g1k)}
     </div>
     <div class="fl-ctl">
-      <span class="lab">排序</span>${seg("sort", [["ft","買超金額"],["sft","外+投連買天數"],["sf","外資連買天數"],["st","投信連買天數"],["sq","外資持股增加"],["b4","400張大戶增加"],["b1","1000張大戶增加"]], rkState.sort)}
-      <span class="lab">外+投至少連買</span>${seg("minStreak", [[0,"不限"],[3,"3 日"],[5,"5 日"],[10,"10 日"]], rkState.minStreak)}
+      <span class="lab">排序</span>${seg("sort", [["zft","買超張數"],["ft","買超金額"],["sft","外+投連買天數"],["sf","外資連買天數"],["st","投信連買天數"],["sq","外資持股增加"],["b4","400張大戶增加"],["b1","1000張大戶增加"]], D.sort)}
+      <span class="lab">外+投至少連買</span>${seg("minStreak", [[0,"不限"],[3,"3 日"],[5,"5 日"],[10,"10 日"]], D.minStreak)}
+    </div>
+    <div class="fl-ctl">
+      <button id="rkGo" style="background:var(--accent,#2f81f7);color:#fff;border:0;border-radius:8px;padding:8px 22px;font:inherit;font-weight:700;cursor:pointer">確定,重新篩選</button>
+      <span class="lab" style="color:${dirty ? '#e0a030' : 'var(--mute)'}">${dirty ? "條件已變更,請按「確定」撈出新的排序" : "目前顯示的是已套用的條件(買超金額最多的排最上面)"}</span>
     </div>
     <div class="note" style="margin:0 0 8px"><b>已勾選:</b>${(() => { const a = actChk.map(([k,t]) => k==="streak" ? `外+投連買 ≥ ${minSt} 日` : t);
       if(rkState.theme!=="全部") a.unshift(`題材:${rkState.theme}`);
       if(rkState.maxR) a.push(`20日漲幅 ≤ ${rkState.maxR}%`); if(rkState.minYoy!=="any") a.push(`營收年增 ≥ ${rkState.minYoy}%`);
       if(rkState.nearHi!=="any") a.push(`距60日高 ≤ ${rkState.nearHi}%`); return a.length ? a.join(" + ") : "無(全市場排行)"; })()},共 ${total} 檔</div>
-    <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">20日漲幅</th><th class="n">外資(億)</th><th class="n">投信(億)</th><th class="n">外+投(億)</th><th class="n" title="外資由最近一日往回算,連續買超或賣超的交易日數">外資連續</th><th class="n">投信連續</th><th class="n">外+投連續</th><th class="n" title="持股 400 張(40 萬股)以上股東合計占集保庫存比例;括號為與上週相比的變化(百分點)">400張大戶%(週)</th><th class="n" title="持股 1000 張以上股東合計占集保庫存比例">1000張大戶%(週)</th><th class="n" title="400 張以上大戶人數與上週相比的變化">400張人數(週)</th><th class="n" title="全體外資及陸資持股占發行股數比率(證交所、櫃買中心)">外資持股%</th><th class="n" title="與期間起點前一日相比的變化,單位為百分點">${w} 日變化(pt)</th>
+    <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">20日漲幅</th><th class="n">外資(億)</th><th class="n">投信(億)</th><th class="n">外+投(億)</th><th class="n" title="外資 + 投信 近期間淨買賣超張數(1 張 = 1000 股)">外+投(張)</th><th class="n" title="外資由最近一日往回算,連續買超或賣超的交易日數">外資連續</th><th class="n">投信連續</th><th class="n">外+投連續</th><th class="n" title="持股 400 張(40 萬股)以上股東合計占集保庫存比例;括號為與上週相比的變化(百分點)">400張大戶%(週)</th><th class="n" title="持股 1000 張以上股東合計占集保庫存比例">1000張大戶%(週)</th><th class="n" title="400 張以上大戶人數與上週相比的變化">400張人數(週)</th><th class="n" title="全體外資及陸資持股占發行股數比率(證交所、櫃買中心)">外資持股%</th><th class="n" title="與期間起點前一日相比的變化,單位為百分點">${w} 日變化(pt)</th>
       <th class="n">營收月增</th><th class="n">營收年增</th><th class="n">明年 EPS 預估</th><th class="n">預估 P/E</th><th>產業別 · 族群</th></tr></thead><tbody>
       ${list.map((r,i)=>`<tr class="clk" data-c="${r.c}"><td class="mute">${i+1}</td>
         <td><b>${esc(r.x.n)}</b> <span class="mute">${r.c}</span>${r.wl?' <span class="tagc w">自選</span>':''}</td>
         <td class="n">${fmt(r.x.c)}</td><td class="n ${cls(r.x.r)}">${r.x.r==null?"—":pct(r.x.r)}</td>
-        <td class="n ${cls(r.f)}">${f1(r.f)}</td><td class="n ${cls(r.t)}">${f1(r.t)}</td><td class="n ${cls(r.ft)}"><b>${f1(r.ft)}</b></td>
+        <td class="n ${cls(r.f)}">${f1(r.f)}</td><td class="n ${cls(r.t)}">${f1(r.t)}</td><td class="n ${cls(r.ft)}"><b>${f1(r.ft)}</b></td><td class="n ${cls(r.zft)}"><b>${fmt(r.zft,0)}</b></td>
         <td class="n">${streakTxt(r.sf)}</td><td class="n">${streakTxt(r.st)}</td><td class="n">${streakTxt(r.sft)}</td>
         <td class="n">${r.p4==null?"—":fmt(r.p4)+"%"}${r.d4w==null?"":` <span class="${cls(r.d4w)}">(${r.d4w>0?"+":""}${fmt(r.d4w)})</span>`}</td>
         <td class="n">${r.p1==null?"—":fmt(r.p1)+"%"}${r.d1w==null?"":` <span class="${cls(r.d1w)}">(${r.d1w>0?"+":""}${fmt(r.d1w)})</span>`}</td>
@@ -1040,18 +1049,19 @@ function renderRank(){
 }
 $("#rank").addEventListener("click", e => {
   const sg = e.target.closest(".seg button");
-  const pb = e.target.closest(".rkp"); if(pb){ Object.assign(rkState, RK_PRESET.reset, RK_PRESET[pb.dataset.p]); rkState.chk = Object.assign({}, rkState.chk); renderRank(); return; }
-  if(sg){ const id = sg.parentNode.dataset.id; rkState[id] = RK_STR.has(id) ? sg.dataset.k : +sg.dataset.k; renderRank(); return; }
+  const pb = e.target.closest(".rkp"); if(pb){ Object.assign(rkDraft, RK_PRESET.reset, RK_PRESET[pb.dataset.p]); rkDraft.chk = Object.assign({}, rkDraft.chk); applyRank(); return; }
+  if(e.target.closest("#rkGo")){ applyRank(); return; }
+  if(sg){ const id = sg.parentNode.dataset.id; rkDraft[id] = RK_STR.has(id) ? sg.dataset.k : +sg.dataset.k; renderRank(); return; }
   const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c);
 });
 $("#rank").addEventListener("change", e => {
-  if(e.target.id==="rkInd"){ rkState.ind = e.target.value; renderRank(); }
-  if(e.target.id==="rkTheme"){ rkState.theme = e.target.value; renderRank(); }
-  if(e.target.id==="rkWatch"){ rkState.watch = e.target.checked; renderRank(); }
+  if(e.target.id==="rkInd"){ rkDraft.ind = e.target.value; renderRank(); }
+  if(e.target.id==="rkTheme"){ rkDraft.theme = e.target.value; renderRank(); }
+  if(e.target.id==="rkWatch"){ rkDraft.watch = e.target.checked; renderRank(); }
   const k = e.target.dataset && e.target.dataset.chk;
   if(k){
-    if(e.target.checked){ rkState.chk[k] = 1; if(RK_EXCL[k]) delete rkState.chk[RK_EXCL[k]]; }
-    else delete rkState.chk[k];
+    if(e.target.checked){ rkDraft.chk[k] = 1; if(RK_EXCL[k]) delete rkDraft.chk[RK_EXCL[k]]; }
+    else delete rkDraft.chk[k];
     renderRank();
   }
 });
