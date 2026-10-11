@@ -236,6 +236,7 @@ td.clk{cursor:pointer}
     <button data-t="summary" class="on">重點摘要</button>
     <button data-t="view">看盤 K 線</button>
     <button data-t="flow">資金流向</button>
+    <button data-t="top">每日前15名</button>
     <button data-t="rank">買超排行</button>
     <button data-t="tables">總覽表</button>
     <button data-t="cmp">台美對照</button>
@@ -283,6 +284,7 @@ td.clk{cursor:pointer}
 </section>
 
 <section class="tab" id="t-flow"><div class="page"><div class="wrap" id="flow"></div></div></section>
+<section class="tab" id="t-top"><div class="page"><div class="wrap" id="top15"></div></div></section>
 <section class="tab" id="t-rank"><div class="page"><div class="wrap" id="rank"></div></div></section>
 <section class="tab" id="t-tables"><div class="page"><div class="wrap" id="tables"></div></div></section>
 <section class="tab" id="t-cmp"><div class="page"><div class="wrap" id="cmp"></div></div></section>
@@ -357,6 +359,7 @@ $("#nav").addEventListener("click", e => {
   if(b.dataset.t==="cmp") renderCmp();
   if(b.dataset.t==="udn") renderUdn();
   if(b.dataset.t==="rank") renderRank();
+  if(b.dataset.t==="top") renderTop();
   if(b.dataset.t==="arena") renderArena();
   if(b.dataset.t==="ccl") renderCcl();   // 分頁顯示後才畫圖,避免寬度為 0
   navPush();
@@ -986,7 +989,7 @@ function renderRank(){
   el.innerHTML = `
     <div class="note" style="margin:0 0 8px">依「外資 + 投信」近 ${w} 個交易日的淨買超金額排序(也可改依連續買超天數;金額 = 淨買賣超張數 × 當日收盤價,估算,單位億元);資料至 ${F.last}。不含自營商與散戶。</div>
     <div class="fl-ctl">
-      <span class="lab">期間</span>${seg("win", [[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], D.win)}
+      <span class="lab">期間</span>${seg("win", [[3,"3 日"],[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], D.win)}
       <span class="lab">顯示</span>${seg("top", [[15,"前 15"],[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], D.top)}
       <span class="lab">產業別</span><select id="rkInd" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${inds.map(i=>`<option ${i===D.ind?'selected':''}>${esc(i)}</option>`).join("")}</select>
       <span class="lab">題材族群</span><select id="rkTheme" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${themes.map(i=>`<option ${i===D.theme?'selected':''}>${esc(i)}</option>`).join("")}</select>
@@ -1065,6 +1068,31 @@ $("#rank").addEventListener("change", e => {
     renderRank();
   }
 });
+
+// ---------- 每日前 15 名:全市場買超張數、外資投信同買,3 / 5 / 10 / 20 日 ----------
+function renderTop(){
+  const el = $("#top15"), F = window.FLOW;
+  if(!F){ el.innerHTML = '<div class="headline">尚無資料,請執行 update_all.bat。</div>'; return; }
+  const wlSet = new Set(WL.map(x => x.code));
+  const base = Object.entries(F.stocks).filter(([c,x]) => x.i && x.c > 0 && !(x.r != null && x.r <= -99));
+  const WINS = [3, 5, 10, 20];
+  const mk = (w, both) => base.map(([c,x]) => {
+    const z = x.z && x.z[w] ? x.z[w] : [0,0,0], a = x.w[w] || [0,0,0];
+    return {c, x, f:z[0], t:z[1], zft:z[0]+z[1], ft:a[0]+a[1]};
+  }).filter(r => !both || (r.f > 0 && r.t > 0)).sort((a,b) => b.zft - a.zft).slice(0, 15);
+  const table = (rows, title) => `<div style="flex:1 1 440px;min-width:0"><div class="lab" style="margin:6px 0"><b>${title}</b></div>
+    <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">外資(張)</th><th class="n">投信(張)</th><th class="n">外+投(張)</th><th class="n">外+投(億)</th></tr></thead><tbody>
+    ${rows.map((r,i) => `<tr class="clk" data-c="${r.c}"><td class="mute">${i+1}</td>
+      <td><b>${esc(r.x.n)}</b> <span class="mute">${r.c}</span>${wlSet.has(r.c) ? ' <span class="tagc w">自選</span>' : ''}</td>
+      <td class="n">${fmt(r.x.c)}</td><td class="n ${cls(r.f)}">${fmt(r.f,0)}</td><td class="n ${cls(r.t)}">${fmt(r.t,0)}</td>
+      <td class="n ${cls(r.zft)}"><b>${fmt(r.zft,0)}</b></td><td class="n ${cls(r.ft)}">${fmt(r.ft,1)}</td></tr>`).join("") || '<tr><td colspan="7" class="mute">無資料</td></tr>'}
+    </tbody></table></div></div>`;
+  el.innerHTML = `<div class="note" style="margin:0 0 8px">依「外資 + 投信」在各期間的<b>淨買超張數</b>排名前 15(資料至 ${F.last};不含自營商與散戶;張數 = 期間內每日淨買賣超張數加總)。
+      左邊為全市場,右邊為外資與投信<b>同時買超</b>者。點任一列看 K 線。要自訂條件請到「買超排行」。</div>` +
+    WINS.map(w => `<h3 style="margin:16px 0 4px">近 ${w} 個交易日</h3>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">${table(mk(w,false), `全市場 買超張數前 15(${w} 日)`)}${table(mk(w,true), `外資投信同買 前 15(${w} 日)`)}</div>`).join("");
+}
+$("#top15").addEventListener("click", e => { const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c); });
 
 // ---------- CCL 材料進度(M8 / M9 / M10 / PTFE) ----------
 function renderCcl(){
