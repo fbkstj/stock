@@ -899,7 +899,7 @@ function renderCmp(){
 $("#cmp").addEventListener("click", e => { const t = e.target.closest("[data-c]"); if(t) gotoStock(t.dataset.c); });
 
 // ---------- 外資+投信買超排行(固定表) ----------
-const rkState = {win:20, top:30, ind:"全部", watch:false, sort:"zft", minStreak:0, chk:{}, g4:"any", g1k:"any", minFt:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"};
+const rkState = {win:20, top:15, ind:"全部", watch:false, sort:"zft", minStreak:0, chk:{}, g4:"any", g1k:"any", minFt:0, maxR:0, minYoy:"any", nearHi:"any", theme:"全部"};
 const RK_STR = new Set(["sort","g4","g1k","minYoy","nearHi"]);
 // 條件勾選:勾 2 個以上取交集(AND);買超/賣超互斥
 const RK_CHK = [
@@ -987,7 +987,7 @@ function renderRank(){
     <div class="note" style="margin:0 0 8px">依「外資 + 投信」近 ${w} 個交易日的淨買超金額排序(也可改依連續買超天數;金額 = 淨買賣超張數 × 當日收盤價,估算,單位億元);資料至 ${F.last}。不含自營商與散戶。</div>
     <div class="fl-ctl">
       <span class="lab">期間</span>${seg("win", [[5,"5 日"],[10,"10 日"],[20,"20 日"],[60,"60 日"]], D.win)}
-      <span class="lab">顯示</span>${seg("top", [[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], D.top)}
+      <span class="lab">顯示</span>${seg("top", [[15,"前 15"],[20,"前 20"],[30,"前 30"],[50,"前 50"],[100,"前 100"]], D.top)}
       <span class="lab">產業別</span><select id="rkInd" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${inds.map(i=>`<option ${i===D.ind?'selected':''}>${esc(i)}</option>`).join("")}</select>
       <span class="lab">題材族群</span><select id="rkTheme" style="background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit">${themes.map(i=>`<option ${i===D.theme?'selected':''}>${esc(i)}</option>`).join("")}</select>
       <label style="cursor:pointer"><input type="checkbox" id="rkWatch" ${D.watch?'checked':''}> 只看自選股</label>
