@@ -779,13 +779,30 @@ function renderSummary(){
   const movers = WL.map(s=>({s, i:lastInfo(s.code)})).filter(x=>x.i).sort((a,b)=>b.i.pct-a.i.pct);
   const mini = x => `<div class="it" data-c="${x.s.code}"><div class="t"><b>${esc(x.s.name)}</b><span class="${cls(x.i.chg)}">${pct(x.i.pct)}</span></div>
       <div class="t sub mute"><span>${x.s.code}</span><span>${fmt(x.i.c)}</span></div></div>`;
+  // 市場概況前三張卡片由最新資料即時計算,不會因為摘要文字沒更新而過期
+  const md = d => d ? `${+d.slice(5,7)}/${+d.slice(8)}` : "—";
+  const tw = PRICES.TWII ? PRICES.TWII.rows : [], dyn = [];
+  if(tw.length > 1){
+    const a = tw.at(-1), b = tw.at(-2), chg = a[4]-b[4], pc = chg/b[4]*100;
+    dyn.push({k:`加權指數 ${md(a[0])}`, v:`${fmt(a[4],2)} 點`, d:`${chg>=0?"+":""}${fmt(chg,2)} / ${pc>=0?"+":""}${fmt(pc,2)}%;最低 ${fmt(a[3],2)}、最高 ${fmt(a[2],2)}`, tone: chg>=0?"up":"dn"});
+  }
+  const ti = lastInfo("2330");
+  if(ti) dyn.push({k:`台積電 ${md(ti.date)}`, v:`${fmt(ti.c)} 元`, d:`${ti.chg>=0?"+":""}${fmt(ti.chg)} / ${pct(ti.pct)}`, tone: ti.chg>=0?"up":"dn"});
+  if(window.FLOW){
+    let f = 0, t = 0, dl = 0;
+    Object.values(window.FLOW.stocks).forEach(x => { const w = x.w && x.w[1]; if(w){ f += w[0]; t += w[1]; dl += w[2]; } });
+    const sum = f + t + dl;
+    dyn.push({k:`三大法人 ${md(window.FLOW.last)}(估算)`, v:`${sum>=0?"買超":"賣超"} ${fmt(Math.abs(sum),0)} 億`,
+      d:`外資 ${f>=0?"+":""}${fmt(f,0)} 億、投信 ${t>=0?"+":""}${fmt(t,0)} 億、自營商 ${dl>=0?"+":""}${fmt(dl,0)} 億;金額 = 張數 × 收盤價,與證交所公布數字略有差異`, tone: sum>=0?"up":"dn"});
+  }
+  const mktCards = dyn.concat(S.market.filter(m => !/^(加權指數|三大法人|台積電)/.test(m.k)));
   $("#summary").innerHTML = `
     <div class="headline">${esc(S.headline)}</div>
     <h2 class="sec">市場概況</h2>
-    <div class="grid">${S.market.map(m=>`<div class="card"><div class="k">${esc(m.k)}</div><div class="v ${m.tone}">${esc(m.v)}</div><div class="d">${esc(m.d)}</div></div>`).join("")}</div>
+    <div class="grid">${mktCards.map(m=>`<div class="card"><div class="k">${esc(m.k)}</div><div class="v ${m.tone}">${esc(m.v)}</div><div class="d">${esc(m.d)}</div></div>`).join("")}</div>
     <h2 class="sec">本週主題</h2>
     <div class="grid">${S.themes.map(t=>`<div class="card"><h4>${esc(t.title)}</h4><p>${esc(t.body)}</p></div>`).join("")}</div>
-    <h2 class="sec">自選股 10/8 漲跌(點選看 K 線)</h2>
+    <h2 class="sec">自選股 ${md(tw.length ? tw.at(-1)[0] : "")} 漲跌(點選看 K 線)</h2>
     <div class="mini">${movers.map(mini).join("")}</div>
     <h2 class="sec">處置 / 注意狀態</h2>
     <div class="mini">${dis.concat(nt).map(s=>`<div class="it" data-c="${s.code}"><div class="t"><b>${esc(s.name)}</b><span class="pill ${s.status}">${ST[s.status]}</span></div><div class="sub mute" style="font-size:calc(12px*var(--fs))">${esc(s.statusNote)}</div></div>`).join("")}</div>
