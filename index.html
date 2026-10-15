@@ -860,10 +860,10 @@ function renderUS(){
   const sk = {def:null, pct:x=>x.pct, r20:x=>x.r20==null?-1e9:x.r20};
   const num = (v, d=2) => v==null ? "—" : fmt(v, d);
   const pc = v => v==null ? "—" : pct(v);
-  const idx = ["^SOX","^IXIC","^GSPC","^DJI"].filter(k=>US.series[k]).map(st);
+  const idx = ["^SOX","^IXIC","^GSPC","^DJI"].filter(k=>US.series[k] && US.series[k].r.length >= 2).map(st);
   const seg = `<div class="seg" id="usSort">${[["def","預設"],["pct","單日漲跌"],["r20","20 日漲跌"]].map(([k,t])=>`<button data-k="${k}" class="${usSort===k?'on':''}">${t}</button>`).join("")}</div>`;
   const group = g => {
-    let list = g.items.map(st);
+    let list = g.items.filter(k => US.series[k] && US.series[k].r.length >= 2).map(st);   // 資料不足兩筆(如暫停交易、改名)的標的略過,避免整頁初始化中斷
     if(sk[usSort]) list.sort((a,b)=>sk[usSort](b)-sk[usSort](a));
     const avg = list.reduce((a,x)=>a+x.pct,0)/Math.max(1,list.length);
     return `<h2 class="sec">${esc(g.name)} <span class="mute" style="font-size:.85em">平均單日 <b class="${cls(avg)}">${pct(avg)}</b></span></h2>
@@ -1772,7 +1772,10 @@ $("#flow").addEventListener("click", e => {
 });
 $("#flow").addEventListener("change", e => { if(e.target.id==="flowDaySel"){ flowDay = +e.target.value; renderFlow(); } });
 
-renderSummary(); renderTables(); renderCalendar(); renderDigest(); renderList(); renderInfo(); renderFlow(); renderUS();
+// 初始化各分頁:任何一個分頁資料異常都不應中斷後面的程式(否則「上一頁」等功能會整個消失)
+[renderSummary, renderTables, renderCalendar, renderDigest, renderList, renderInfo, renderFlow, renderUS].forEach(f => {
+  try { f(); } catch(e) { console.error("init " + f.name + " failed:", e); }
+});
 function setFS(v){
   FS = v; document.documentElement.style.setProperty("--fs", FS);
   try { localStorage.setItem("stock_fs", String(FS)); } catch(e) {}
