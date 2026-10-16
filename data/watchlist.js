@@ -1,6 +1,6 @@
 // 由「台股新聞彙整.md」(2026-10-10 更新)整理而成。數字引自媒體報導,未對照公開資訊觀測站。
 // 目標價與預估皆為券商或法人觀點,不構成買賣建議。
-window.WATCH_META = { source: "台股新聞彙整.md", asof: "2026-10-16 17:30", priceThrough: "2026-10-08" };
+window.WATCH_META = { source: "台股新聞彙整.md", asof: "2026-10-16 17:05", priceThrough: "2026-10-08" };
 
 // status: disposal 處置中 / disposalNext 即將處置 / notice 注意股 / normal 正常
 window.WATCHLIST = [
