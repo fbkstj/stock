@@ -44,6 +44,7 @@ nav button.on{background:var(--panel2);color:var(--text)}
 .row .px{text-align:right;font-variant-numeric:tabular-nums}
 .row .sub{font-size:calc(12px*var(--fs));color:var(--mute)}
 .grp{padding:6px 10px;font-size:calc(12px*var(--fs));color:var(--mute);background:#12161d;border-bottom:1px solid #20252f}
+.grp.cg{cursor:pointer;user-select:none}.grp.cg:hover{color:#e6e9ef}.grp.cg .car{display:inline-block;width:1em}
 
 #center{display:flex;flex-direction:column;min-width:0;height:100%}
 #bar{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--panel)}
@@ -515,7 +516,10 @@ function renderList(){
   const F = window.FLOW, inList = c => WL.some(s=>s.code===c) || REF.some(r=>r.code===c) || usFixSet.has(c);
   for(const g of usFix){
     const its = g.items.filter(k => !q || k.toLowerCase().includes(q) || US_NAMES[k].toLowerCase().includes(q));
-    if(its.length) html += `<div class="grp">美股・${esc(g.name)} ${its.length}</div>` + its.map(k=>row(k, US_NAMES[k], null)).join("");
+    if(!its.length) continue;
+    const off = !q && usCol.has(g.name);                       // 收合時只留目前檢視的那一檔,搜尋時一律展開
+    const shown = off ? its.filter(k => k === current) : its;
+    html += `<div class="grp cg" data-g="${esc(g.name)}" title="點一下${off?"展開":"收合"}"><span class="car">${off?"▸":"▾"}</span> 美股・${esc(g.name)} ${its.length}</div>` + shown.map(k=>row(k, US_NAMES[k], null)).join("");
   }
   const mk = (c) => { const x = F.stocks[c];
     return `<div class="row ${c===current?'sel':''}" data-c="${c}"><div><span class="nm">${esc(x.n)}</span><span class="cd">${c}</span></div>
@@ -544,7 +548,17 @@ function usFixed(){
     return {name: n === "指數與ETF" ? "指數與 ETF" : n, items};
   }).filter(g => g && g.items.length);
 }
-$("#rows").addEventListener("click", e => { const r=e.target.closest(".row"); if(r) select(r.dataset.c); });
+const usCol = new Set();   // 已收合的美股區塊(記在瀏覽器 localStorage;讀寫失敗就不記)
+try { JSON.parse(localStorage.getItem("usGrpCol") || "[]").forEach(x => usCol.add(x)); } catch(e) {}
+$("#rows").addEventListener("click", e => {
+  const gh = e.target.closest(".cg");
+  if(gh){
+    const n = gh.dataset.g; if(usCol.has(n)) usCol.delete(n); else usCol.add(n);
+    try { localStorage.setItem("usGrpCol", JSON.stringify([...usCol])); } catch(err) {}
+    const top = $("#rows").scrollTop; renderList(); $("#rows").scrollTop = top; return;
+  }
+  const r=e.target.closest(".row"); if(r) select(r.dataset.c);
+});
 $("#q").addEventListener("input", renderList);
 $("#sortby").addEventListener("change", renderList);
 
