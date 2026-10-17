@@ -510,7 +510,10 @@ function renderList(){
   let html = `<div class="grp">自選股 ${items.length} 檔</div>` + items.map(s=>row(s.code,s.name,s.status)).join("");
   const refs = REF.filter(r => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
   if(refs.length) html += `<div class="grp">大盤 / 參考</div>` + refs.map(r=>row(r.code,r.name,null)).join("");
-  const F = window.FLOW, inList = c => WL.some(s=>s.code===c) || REF.some(r=>r.code===c);
+  const USIDX = ["^SOX","^IXIC","^GSPC","^DJI"];   // 美股四大指數固定列在左側清單,點下去直接看 K 線
+  const F = window.FLOW, inList = c => WL.some(s=>s.code===c) || REF.some(r=>r.code===c) || (US && USIDX.includes(c) && isUS(c));
+  if(US){ const ui = USIDX.filter(k => isUS(k) && PRICES[k] && PRICES[k].rows.length >= 2 && (!q || k.toLowerCase().includes(q) || US_NAMES[k].toLowerCase().includes(q)));
+    if(ui.length) html += `<div class="grp">美股指數</div>` + ui.map(k=>row(k, US_NAMES[k], null)).join(""); }
   const mk = (c) => { const x = F.stocks[c];
     return `<div class="row ${c===current?'sel':''}" data-c="${c}"><div><span class="nm">${esc(x.n)}</span><span class="cd">${c}</span></div>
       <div class="px">${fmt(x.c)}</div><div class="sub">${esc(x.i)}</div><div class="px sub ${cls(x.r)}">${x.r==null?"":"20日 "+pct(x.r)}</div></div>`; };
