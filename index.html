@@ -510,10 +510,13 @@ function renderList(){
   let html = `<div class="grp">自選股 ${items.length} 檔</div>` + items.map(s=>row(s.code,s.name,s.status)).join("");
   const refs = REF.filter(r => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
   if(refs.length) html += `<div class="grp">大盤 / 參考</div>` + refs.map(r=>row(r.code,r.name,null)).join("");
-  const USIDX = ["^SOX","^IXIC","^GSPC","^DJI"];   // 美股四大指數固定列在左側清單,點下去直接看 K 線
-  const F = window.FLOW, inList = c => WL.some(s=>s.code===c) || REF.some(r=>r.code===c) || (US && USIDX.includes(c) && isUS(c));
-  if(US){ const ui = USIDX.filter(k => isUS(k) && PRICES[k] && PRICES[k].rows.length >= 2 && (!q || k.toLowerCase().includes(q) || US_NAMES[k].toLowerCase().includes(q)));
-    if(ui.length) html += `<div class="grp">美股指數</div>` + ui.map(k=>row(k, US_NAMES[k], null)).join(""); }
+  const usFix = usFixed();   // 美股指數與 AI 相關公司固定列在左側清單,點下去直接看 K 線
+  const usFixSet = new Set(usFix.flatMap(g => g.items));
+  const F = window.FLOW, inList = c => WL.some(s=>s.code===c) || REF.some(r=>r.code===c) || usFixSet.has(c);
+  for(const g of usFix){
+    const its = g.items.filter(k => !q || k.toLowerCase().includes(q) || US_NAMES[k].toLowerCase().includes(q));
+    if(its.length) html += `<div class="grp">美股・${esc(g.name)} ${its.length}</div>` + its.map(k=>row(k, US_NAMES[k], null)).join("");
+  }
   const mk = (c) => { const x = F.stocks[c];
     return `<div class="row ${c===current?'sel':''}" data-c="${c}"><div><span class="nm">${esc(x.n)}</span><span class="cd">${c}</span></div>
       <div class="px">${fmt(x.c)}</div><div class="sub">${esc(x.i)}</div><div class="px sub ${cls(x.r)}">${x.r==null?"":"20日 "+pct(x.r)}</div></div>`; };
@@ -528,6 +531,18 @@ function renderList(){
     if(hs.length) html += `<div class="grp">美股搜尋 ${hs.length} 檔</div>` + hs.map(k => row(k, US_NAMES[k], null)).join("");
   }
   $("#rows").innerHTML = html;
+}
+// 美股固定清單:指數與 ETF、AI 相關、半導體、記憶體與儲存、光通訊、電力射頻與封測(同一檔只列一次;資料不足兩筆者略過)
+const US_KEEP = ["指數與ETF", "AI 相關", "半導體", "記憶體與儲存", "光通訊", "電力、射頻與封測"];
+function usFixed(){
+  if(!US) return [];
+  const seen = new Set();
+  return US_KEEP.map(n => {
+    const g = US.groups.find(x => x.name === n); if(!g) return null;
+    const items = g.items.filter(k => !seen.has(k) && PRICES[k] && PRICES[k].rows.length >= 2);
+    items.forEach(k => seen.add(k));
+    return {name: n === "指數與ETF" ? "指數與 ETF" : n, items};
+  }).filter(g => g && g.items.length);
 }
 $("#rows").addEventListener("click", e => { const r=e.target.closest(".row"); if(r) select(r.dataset.c); });
 $("#q").addEventListener("input", renderList);
