@@ -307,6 +307,7 @@ td.clk{cursor:pointer}
 <script src="data/inst.js"></script>
 <script src="data/flow.js"></script>
 <script src="data/gindex.js"></script>
+<script src="data/margin.js"></script>
 <script src="data/tech.js"></script>
 <script src="data/digest.js"></script>
 <script src="data/us.js"></script>
@@ -827,11 +828,21 @@ function renderSummary(){
     dyn.push({k:`三大法人 ${md(window.FLOW.last)}(估算)`, v:`${sum>=0?"買超":"賣超"} ${fmt(Math.abs(sum),0)} 億`,
       d:`外資 ${f>=0?"+":""}${fmt(f,0)} 億、投信 ${t>=0?"+":""}${fmt(t,0)} 億、自營商 ${dl>=0?"+":""}${fmt(dl,0)} 億;金額 = 張數 × 收盤價,與證交所公布數字略有差異`, tone: sum>=0?"up":"dn"});
   }
+  const MG = window.MARGIN && window.MARGIN.rows.length > 1 ? window.MARGIN : null;
+  if(MG){
+    const a = MG.rows.at(-1), b = MG.rows.at(-2);
+    [[1,"大盤(上市)融資維持率",4],[2,"櫃買(OTC)融資維持率",5]].forEach(([i,k,li]) => {
+      const dv = a[i]-b[i], win = MG.rows.slice(-20).map(r=>r[i]);
+      dyn.push({k:`${k} ${md(a[0])}`, v:`${fmt(a[i],1)}%`, d:`較前日 ${dv>=0?"+":""}${fmt(dv,2)} 個百分點;近 20 日 ${fmt(Math.min(...win),1)}% 至 ${fmt(Math.max(...win),1)}%;融資餘額 ${fmt(a[li],0)} 億元`, tone: dv>=0?"up":"dn"});
+    });
+  }
   const mktCards = dyn.concat(S.market.filter(m => !/^(加權指數|三大法人|台積電)/.test(m.k)));
   $("#summary").innerHTML = `
     <div class="headline">${esc(S.headline)}</div>
     <h2 class="sec">市場概況</h2>
     <div class="grid">${mktCards.map(m=>`<div class="card"><div class="k">${esc(m.k)}</div><div class="v ${m.tone}">${esc(m.v)}</div><div class="d">${esc(m.d)}</div></div>`).join("")}</div>
+    ${MG ? `<h2 class="sec">融資維持率走勢(民間估算)</h2><div id="mgchart" class="gidx" style="height:220px"></div>
+    <div class="note">維持率 = Σ(各股融資餘額張數 × 收盤價) ÷ 融資餘額金額,資料來自證交所與櫃買中心的融資融券統計;<b>不是</b>證交所公布的「整戶擔保維持率」(整戶口徑含融券與其他擔保品,數字通常較高),只用來看趨勢。</div>` : ""}
     <h2 class="sec">本週主題</h2>
     <div class="grid">${S.themes.map(t=>`<div class="card"><h4>${esc(t.title)}</h4><p>${esc(t.body)}</p></div>`).join("")}</div>
     <h2 class="sec">自選股 ${md(tw.length ? tw.at(-1)[0] : "")} 漲跌(點選看 K 線)</h2>
@@ -842,6 +853,19 @@ function renderSummary(){
     <ul class="risk">${S.risks.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>
     <div class="note">資料來源:台股新聞彙整.md(${esc(window.WATCH_META.asof)});股價為 Yahoo Finance 日 K,未還原權息。目標價與預估為券商或法人觀點,不構成買賣建議。</div>`;
   $("#summary").onclick = e => { const it=e.target.closest(".it"); if(it) gotoStock(it.dataset.c); };
+  drawMargin();
+}
+let mgChart = null;
+function drawMargin(){
+  if(mgChart){ try{ mgChart.remove(); }catch(e){} mgChart = null; }
+  const box = $("#mgchart"), MG = window.MARGIN; if(!box || !MG) return;
+  try{
+    const ch = LightweightCharts.createChart(box, Object.assign(chartOpts(), {width:box.clientWidth||600, height:220}));
+    mgChart = ch;
+    ch.addLineSeries({color:"#e5e7eb", lineWidth:2, title:"上市", priceLineVisible:false}).setData(MG.rows.map(r=>({time:r[0], value:r[1]})));
+    ch.addLineSeries({color:"#f5b942", lineWidth:2, title:"上櫃", priceLineVisible:false}).setData(MG.rows.map(r=>({time:r[0], value:r[2]})));
+    ch.timeScale().fitContent();
+  }catch(e){ console.error("margin chart failed:", e); }
 }
 
 // ---------- 總覽表 ----------
