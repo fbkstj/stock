@@ -242,6 +242,9 @@ td.clk{cursor:pointer}
 .chk{display:grid;gap:4px;font-size:calc(12px*var(--fs))}
 .chk>div{display:grid;grid-template-columns:16px 64px 1fr;gap:6px;align-items:start}
 .chk b{text-align:center}
+.sigchk{display:inline-flex;flex-wrap:wrap;gap:4px 12px;margin-left:10px;font-size:calc(12px*var(--fs));color:var(--mute);align-items:center}
+.sigchk label{display:inline-flex;gap:4px;align-items:center;cursor:pointer;white-space:nowrap}
+.sigchk input{accent-color:#ef4444;cursor:pointer}
 .sg-t2{color:#f2c94c;border-color:#f2c94c}.sg-t3{color:#7ccf95;border-color:#7ccf95}.sg-t4{color:#fff;background:#1f7a4a;border-color:#1f7a4a}
 .stbar.tp div.on{background:#1f6f43;color:#fff}.stbar.tp div.on.fl{background:#3a3f4a;color:#aeb7c6}
 </style>
@@ -509,7 +512,7 @@ function macd(rows){
 // ---------- 左側清單 ----------
 let current = "6213", period="D", rangeN=120, indMode="KD";
 const maOn = {5:true,10:true,20:true,60:true};
-let bbOn = true, S_bu, S_bl, bbData = null;
+let bbOn = true, S_bu, S_bl, bbData = null, S_tl;
 
 function renderList(){
   const q = $("#q").value.trim().toLowerCase(), sort = $("#sortby").value;
@@ -785,15 +788,62 @@ function bottomPanel0(code){
     <div class="note" style="margin:6px 0 0">依日 K 與 5/10/20/55/60MA 的規則判斷,只是機率參考,不保證反轉;型態定義見「K線止跌與反轉觀察」教學頁。</div></div>`;
 }
 function bottomPanel(code){ return bottomPanel0(code) + topPanel(code); }
+const sigOn = {b:false, t:false, line:false};
+try { const x = JSON.parse(localStorage.getItem("sigOn") || "null"); if(x && typeof x === "object") Object.assign(sigOn, x); } catch(e){}
 function markersOf(code){
-  const d = PRICES[code]; if(!d || d.rows.length < 60) return [];
+  const d = PRICES[code]; if(!d || d.rows.length < 60 || (!sigOn.b && !sigOn.t)) return [];
   const r = d.rows, ma10 = anlMA(r, 10), out = [];
-  for(let i=Math.max(10, r.length-250); i<r.length; i++)
-    { anlDetect(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"belowBar", shape:"arrowUp",
-        color: s.kind==="rev" ? "#ef4444" : s.kind==="stop" ? "#f2c94c" : "#aeb7c6", text: s.name}));
-      anlDetectTop(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"aboveBar", shape:"arrowDown",
-        color: s.kind==="trev" ? "#22c55e" : s.kind==="tstop" ? "#7ccf95" : "#aeb7c6", text: s.name})); }
+  const pb = {rev:3, stop:2, warn:1}, pt = {trev:3, tstop:2, twarn:1};
+  for(let i=Math.max(10, r.length-250); i<r.length; i++){
+    if(sigOn.b){
+      const ss = anlDetect(r, ma10, i).sort((x,y) => pb[y.kind]-pb[x.kind]);
+      if(ss.length) out.push({time:r[i][0], position:"belowBar", shape:"arrowUp", color: ss[0].kind==="rev" ? "#ef4444" : ss[0].kind==="stop" ? "#f2c94c" : "#aeb7c6", text: ss[0].name});
+    }
+    if(sigOn.t){
+      const ss = anlDetectTop(r, ma10, i).sort((x,y) => pt[y.kind]-pt[x.kind]);
+      if(ss.length) out.push({time:r[i][0], position:"aboveBar", shape:"arrowDown", color: ss[0].kind==="trev" ? "#22c55e" : ss[0].kind==="tstop" ? "#7ccf95" : "#aeb7c6", text: ss[0].name});
+    }
+  }
   return out;
+}
+// 短期上升趨勢線:取兩個「轉折低點」連線(斜率向上),其間低點不明顯跌破(容忍 1.5%),觸碰次數多、跨度長者優先
+function trendlineOf(code){
+  const d = PRICES[code]; if(!d || d.rows.length < 60) return null;
+  const r = d.rows, n = r.length, W = 3;
+  const piv = [];
+  for(let i=Math.max(W, n-130); i<n-W; i++){ let lo = true; for(let k=i-W;k<=i+W;k++) if(r[k][3] < r[i][3]) { lo = false; break; } if(lo) piv.push(i); }
+  const cand = piv.filter(i => i >= n-110);
+  for(let lag=1; lag<=3; lag++){           // 線在「前 lag 根」之前都沒被破壞;之後若收盤跌破 1% 即為跌破
+    const end = n-1-lag; let best = null;
+    for(let a=0;a<cand.length;a++) for(let b2=a+1;b2<cand.length;b2++){
+      const i = cand[a], j = cand[b2]; if(j-i < 8 || j > end) continue;
+      const m = (r[j][3]-r[i][3])/(j-i); if(m <= 0) continue;
+      const ln = k => r[i][3] + m*(k-i);
+      let ok = true;
+      for(let k=i;k<=end;k++) if(r[k][3] < ln(k)*0.985) { ok = false; break; }
+      if(ok) for(let k=j;k<=end;k++) if(r[k][4] < ln(k)*0.99) { ok = false; break; }
+      if(!ok) continue;
+      const touches = cand.filter(q => q>=i && q<=end && Math.abs(r[q][3]/ln(q)-1) <= 0.02).length;
+      if(!best || touches > best.touches || (touches === best.touches && j-i > best.span)) best = {i, j, m, touches, span:j-i};
+    }
+    if(best){
+      const ln = k => r[best.i][3] + best.m*(best.i === undefined ? 0 : (k-best.i));
+      let brokeAt = -1;
+      for(let k=end+1;k<n;k++) if(r[k][4] < ln(k)*0.99) { brokeAt = k; break; }
+      if(lag > 1 && brokeAt < 0) continue;   // 較早的線若近 3 日內沒被跌破,就不顯示(避免舊線)
+      const L0 = n-1, gap = (r[L0][4]/ln(L0)-1)*100;
+      return {i:best.i, j:best.j, m:best.m, touches:best.touches, t0:r[best.i][0], v0:r[best.i][3], t1:r[L0][0], v1:ln(L0),
+              status: brokeAt >= 0 ? "break" : "above", gap, ago: brokeAt >= 0 ? (n-1-brokeAt) : null};
+    }
+  }
+  return null;
+}
+function trendlineBadge(code){
+  if(!sigOn.line) return "";
+  const t = trendlineOf(code); if(!t) return `<span class="tr tr-flat" title="近期沒有找到有效的短期上升趨勢線">無上升線</span>`;
+  return t.status === "break"
+    ? `<span class="tr tr-bear" title="收盤低於上升趨勢線 ${Math.abs(t.gap).toFixed(1)}%(連接 ${t.t0} 低點 ${fmt(t.v0)},觸碰 ${t.touches} 次)">跌破上升線${t.ago ? t.ago + "日前" : ""}</span>`
+    : `<span class="tr tr-pull" title="收盤在上升趨勢線之上 ${t.gap.toFixed(1)}%(連接 ${t.t0} 低點 ${fmt(t.v0)},觸碰 ${t.touches} 次)">上升線之上</span>`;
 }
 
 // ---------- 圖表 ----------
@@ -817,6 +867,7 @@ function initCharts(){
 
   const bbOpt = {color:"rgba(148,163,184,.9)",lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
   S_bu = mainChart.addLineSeries(bbOpt); S_bl = mainChart.addLineSeries(bbOpt);
+  S_tl = mainChart.addLineSeries({color:"#facc15",lineWidth:2,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
   // 時間軸同步
   const link = (a,b) => a.timeScale().subscribeVisibleLogicalRangeChange(r => {
     if(syncing||!r) return; syncing=true; try{ b.timeScale().setVisibleLogicalRange(r);}catch(e){} syncing=false; });
@@ -853,11 +904,13 @@ function renderChart(){
   const cbk = cbView ? cbkOf(cbView) : null;
   const d = cbk ? {rows: cbk.r, symbol: "CB " + cbView} : PRICES[current], name = nameOf(current);
   $("#ttl").textContent = cbk ? `${cbk.n} ${cbView}(轉換公司債 · 標的 ${name} ${current})` : `${name} ${current}`;
-  if(!cbk) $("#ttl").insertAdjacentHTML("beforeend", trendBadge(current));
+  if(!cbk) $("#ttl").insertAdjacentHTML("beforeend", trendBadge(current) + trendlineBadge(current));
   if(!d){ S_c.setData([]); S_v.setData([]); $("#legend").textContent="無股價資料"; return; }
   viewRows = aggregate(d.rows, period);
   S_c.setData(viewRows.map(r=>({time:r[0],open:r[1],high:r[2],low:r[3],close:r[4]})));
   try{ S_c.setMarkers(!cbk && period==="D" ? markersOf(current) : []); }catch(e){}
+  try{ const tl = !cbk && period==="D" && sigOn.line ? trendlineOf(current) : null;
+    S_tl.setData(tl ? [{time:tl.t0, value:tl.v0}, {time:tl.t1, value:tl.v1}] : []); }catch(e){}
   S_v.setData(viewRows.map(r=>({time:r[0],value:r[5],color:r[4]>=r[1]?"rgba(239,68,68,.55)":"rgba(34,197,94,.55)"})));
   MAS.forEach(m => { maData[m.n] = sma(viewRows, m.n); S_ma[m.n].setData(maOn[m.n]?maData[m.n]:[]); });
   bbData = boll(viewRows);
@@ -931,6 +984,11 @@ $("#indsel").addEventListener("click", e => { const b=e.target.closest("button")
   indMode=b.dataset.i; document.querySelectorAll("#indsel button").forEach(x=>x.classList.toggle("on",x===b)); renderInd(); updateLegend(null); });
 $("#machips").innerHTML = MAS.map(m=>`<span class="ma-chip" data-n="${m.n}" style="color:${m.c};border-color:${m.c}">MA${m.n}</span>`).join(" ");
 $("#machips").insertAdjacentHTML("beforeend", ` <span class="ma-chip" data-n="BB" style="color:#94a3b8;border-color:#94a3b8">布林</span>`);
+$("#machips").insertAdjacentHTML("beforeend", ` <span class="sigchk"><label title="日 K 圖上標出長下影線、晨星、多頭吞噬、貫穿線、孕線"><input type="checkbox" data-sig="b"> 底部止跌訊號</label><label title="日 K 圖上標出長上影線、夜星、空頭吞噬、烏雲罩頂、爆量長黑"><input type="checkbox" data-sig="t"> 高檔轉弱訊號</label><label title="自動連接轉折低點畫出短期上升趨勢線,並判斷是否跌破"><input type="checkbox" data-sig="line"> 上升趨勢線</label></span>`);
+document.querySelectorAll("#machips input[data-sig]").forEach(cb => { cb.checked = !!sigOn[cb.dataset.sig]; });
+$("#machips").addEventListener("change", e => { const cb = e.target.closest("input[data-sig]"); if(!cb) return;
+  sigOn[cb.dataset.sig] = cb.checked; try { localStorage.setItem("sigOn", JSON.stringify(sigOn)); } catch(err){}
+  if(PRICES[current]) renderChart(); });
 $("#machips").addEventListener("click", e => { const c=e.target.closest(".ma-chip"); if(!c) return;
   if(c.dataset.n==="BB"){ bbOn=!bbOn; c.classList.toggle("off",!bbOn); S_bu.setData(bbOn?bbData.U:[]); S_bl.setData(bbOn?bbData.L:[]); updateLegend(null); return; }
   const n=c.dataset.n; maOn[n]=!maOn[n]; c.classList.toggle("off",!maOn[n]); S_ma[n].setData(maOn[n]?maData[n]:[]); updateLegend(null); });
