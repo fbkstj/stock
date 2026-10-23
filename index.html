@@ -242,6 +242,8 @@ td.clk{cursor:pointer}
 .chk{display:grid;gap:4px;font-size:calc(12px*var(--fs))}
 .chk>div{display:grid;grid-template-columns:16px 64px 1fr;gap:6px;align-items:start}
 .chk b{text-align:center}
+.sg-t2{color:#f2c94c;border-color:#f2c94c}.sg-t3{color:#7ccf95;border-color:#7ccf95}.sg-t4{color:#fff;background:#1f7a4a;border-color:#1f7a4a}
+.stbar.tp div.on{background:#1f6f43;color:#fff}.stbar.tp div.on.fl{background:#3a3f4a;color:#aeb7c6}
 </style>
 </head>
 <body>
@@ -668,18 +670,109 @@ function analyze(code){
     {t:"量能", ok: vr != null && vr >= 1.2, d: vr == null ? "—" : `近 3 日最大量為 20 日均量的 ${vr.toFixed(2)} 倍`},
     {t:"後續守住", ok: anchor ? !fail : null, d: anchor ? (fail ? `收盤跌破 ${md2(anchor.date)} 訊號 K 的低點 ${fmt(r[anchor.i][3])}` : `${md2(anchor.date)} 訊號後未破低 ${fmt(r[anchor.i][3])}`) : "尚無訊號可檢查"},
   ];
+  out.top = anlTop(r, ma5, ma10, ma20, ma55);
   out.ma = {ma5:ma5[L], ma10:ma10[L], ma20:ma20[L], ma55:ma55[L], ma60:ma60[L]};
   return out;
 }
+// ---------- 高檔反轉警訊(頭部)----------
+function anlDetectTop(r, ma10, i){   // kind: "tstop" 見頂 K 線、"trev" 反轉型態、"twarn" 警戒
+  const res = []; if(i < 10 || ma10[i-2] == null) return res;
+  const f = k => ({o:r[k][1], h:r[k][2], l:r[k][3], c:r[k][4], v:r[k][5], body:Math.abs(r[k][4]-r[k][1]), rng:r[k][2]-r[k][3]});
+  const up = k => k >= 10 && ma10[k] != null && r[k][4] > ma10[k] && r[k][4] > r[k-5][4];
+  const bigRed = k => { const x = f(k); return x.c > x.o && x.body/x.c >= 0.012 && x.body >= 0.5*x.rng; };
+  const x = f(i);
+  if(up(i) && x.rng > 0 && x.rng/x.c >= 0.012){
+    const upper = x.h - Math.max(x.o, x.c), lower = Math.min(x.o, x.c) - x.l;
+    if(upper >= 2*x.body && upper >= 0.5*x.rng && lower <= 0.3*x.rng) res.push({name:"長上影線", kind:"tstop"});
+  }
+  if(i >= 1){
+    const p = f(i-1);
+    if(up(i-1) && p.c > p.o && x.c < x.o && x.o >= p.c && x.c <= p.o && x.body > p.body) res.push({name:"空頭吞噬", kind:"trev"});
+    else if(up(i-1) && bigRed(i-1) && x.c < x.o && x.o > p.c && x.c < (p.o+p.c)/2 && x.c > p.o) res.push({name:"烏雲罩頂", kind:"trev"});
+    else if(up(i-1) && bigRed(i-1) && Math.max(x.o,x.c) <= p.c && Math.min(x.o,x.c) >= p.o && x.body < 0.6*p.body) res.push({name:"高檔孕線", kind:"twarn"});
+    if(up(i-1) && x.c < x.o && x.body/x.c >= 0.02 && i >= 20){
+      const v20 = r.slice(i-20, i).reduce((a,k)=>a+k[5],0)/20;
+      if(v20 > 0 && x.v >= 1.5*v20) res.push({name:"爆量長黑", kind:"trev"});
+    }
+  }
+  if(i >= 2){
+    const a = f(i-2), b = f(i-1);
+    if(up(i-2) && bigRed(i-2) && b.body <= 0.35*a.body && Math.min(b.o,b.c) >= a.c*0.995 && x.c < x.o && x.c < (a.o+a.c)/2) res.push({name:"夜星", kind:"trev"});
+  }
+  return res;
+}
+function anlTop(r, ma5, ma10, ma20, ma55){
+  const n = r.length, L = n-1, c = r[L][4], t = {sigs:[], checks:[]};
+  for(let i=Math.max(10,n-8); i<n; i++) anlDetectTop(r, ma10, i).forEach(s => t.sigs.push({i, date:r[i][0], name:s.name, kind:s.kind}));
+  const hi60 = Math.max(...r.slice(-60).map(x=>x[2])), hi5 = Math.max(...r.slice(-5).map(x=>x[2]));
+  const nearHigh = hi5 >= hi60*0.97 && c > ma55[L];
+  const bias = (c/ma20[L]-1)*100;
+  // KD(9,3,3)
+  const K = [], D = []; let k = 50, d = 50;
+  for(let i=0;i<n;i++){
+    if(i < 8){ K.push(null); D.push(null); continue; }
+    let hh = -Infinity, ll = Infinity;
+    for(let j=i-8;j<=i;j++){ hh = Math.max(hh, r[j][2]); ll = Math.min(ll, r[j][3]); }
+    const rsv = hh === ll ? 50 : (r[i][4]-ll)/(hh-ll)*100;
+    k = k*2/3 + rsv/3; d = d*2/3 + k/3; K.push(k); D.push(d);
+  }
+  let kdCross = null;
+  for(let i=n-3; i<n; i++) if(K[i-1] != null && K[i-1] >= D[i-1] && K[i] < D[i] && Math.max(...K.slice(i-5,i)) >= 75) kdCross = r[i][0];
+  // 量價背離:近 5 日創 20 日新高,但 5 日均量低於 20 日均量的 80%
+  const hi20 = Math.max(...r.slice(-25,-5).map(x=>x[2])), v5 = r.slice(-5).reduce((a,x)=>a+x[5],0)/5, v20 = r.slice(-20).reduce((a,x)=>a+x[5],0)/20;
+  const diverge = hi5 > hi20 && v20 > 0 && v5 < 0.8*v20;
+  const tstop = t.sigs.filter(s => s.kind==="tstop" && s.i >= n-5).pop();
+  const trev = t.sigs.filter(s => s.kind==="trev" && s.i >= n-4).pop();
+  const twarn = t.sigs.filter(s => s.kind==="twarn" && s.i >= n-4).pop();
+  const anchor = [tstop, trev, twarn].filter(Boolean).sort((a,b)=>b.i-a.i)[0];
+  let fail = false;
+  if(anchor) for(let j=anchor.i+1; j<n; j++) if(r[j][4] > r[anchor.i][2]*1.001) fail = true;
+  const confirm = !!anchor && !fail && anchor.i < L && c < ma10[L] && c < r[anchor.i][3];
+  let lv, st;
+  if(fail){ lv = -1; st = "警訊失效(再創高)"; }
+  else if(confirm){ lv = 4; st = "頭部確認(跌破訊號 K 低點)"; }
+  else if(trev){ lv = 3; st = "反轉型態成立,待確認"; }
+  else if((tstop || twarn || kdCross || diverge) && (nearHigh || bias >= 6)){ lv = 2; st = "轉弱跡象"; }
+  else if(nearHigh || bias >= 8){ lv = 1; st = "高檔,尚無轉弱訊號"; }
+  else { lv = 0; st = "不在高檔"; }
+  t.stage = {lv, t:st, anchor};
+  const md2 = ds => ds.slice(5).replace("-","/");
+  t.checks = [
+    {t:"高檔位置", ok:nearHigh || bias >= 8, d:`近 5 日高點為 60 日高的 ${(hi5/hi60*100).toFixed(1)}%,距 20MA 乖離 ${(bias>=0?"+":"")+bias.toFixed(1)}%`},
+    {t:"見頂 K 線", ok:!!tstop, d: tstop ? `${md2(tstop.date)} ${tstop.name}` : "近 5 日沒有長上影線"},
+    {t:"反轉型態", ok:!!trev, d: trev ? `${md2(trev.date)} ${trev.name}` : twarn ? `${md2(twarn.date)} ${twarn.name}(需下一根向下確認)` : "近 4 日沒有夜星、吞噬、烏雲罩頂、爆量長黑"},
+    {t:"KD 高檔死叉", ok:!!kdCross, d: kdCross ? `${md2(kdCross)} K 值由高檔向下穿越 D 值` : `K ${K[L]!=null?K[L].toFixed(0):"—"} / D ${D[L]!=null?D[L].toFixed(0):"—"},近 3 日沒有高檔死叉`},
+    {t:"量價背離", ok:diverge, d: diverge ? `近 5 日創 20 日新高,但 5 日均量只有 20 日均量的 ${(v5/v20*100).toFixed(0)}%` : "沒有「創高但量縮」"},
+    {t:"跌破均線", ok:c < ma5[L] && c < ma10[L], d:`收 ${fmt(c)},5MA ${fmt(ma5[L])},10MA ${fmt(ma10[L])},20MA ${fmt(ma20[L])}`},
+    {t:"後續確認", ok: anchor ? (confirm ? true : fail ? false : null) : null, d: anchor ? (fail ? `收盤再創高,${md2(anchor.date)} 的訊號失效` : confirm ? `已跌破 ${md2(anchor.date)} 訊號 K 的低點 ${fmt(r[anchor.i][3])}` : `等待收盤跌破 ${fmt(r[anchor.i][3])}`) : "尚無訊號可檢查"},
+  ];
+  return t;
+}
+function topPanel(code){
+  const a = analyze(code); if(!a || !a.top) return "";
+  const t = a.top, lv = t.stage.lv;
+  if(lv === 0 && !t.sigs.length) return "";
+  const steps = ["高檔位置", "轉弱跡象", "反轉型態", "頭部確認"];
+  const bar = steps.map((s, i) => `<div class="${lv >= i+1 ? "on" : ""}${lv === -1 ? " fl" : ""}">${s}</div>`).join("");
+  const mark = ok => ok === null ? `<b class="mute">—</b>` : ok ? `<b class="dn">✓</b>` : `<b class="mute">✗</b>`;
+  return `<h3>高檔反轉警訊</h3>
+    <div class="anl"><div class="anl-top"><span>階段</span><span class="stg ${lv === -1 ? "f" : ""}">${esc(t.stage.t)}</span></div>
+    <div class="stbar tp">${bar}</div>
+    <div class="chk">${t.checks.map(x => `<div>${mark(x.ok)}<span>${esc(x.t)}</span><span class="mute">${esc(x.d)}</span></div>`).join("")}</div>
+    <div class="note" style="margin:6px 0 0">高檔訊號是機率參考:強勢股可以長時間鈍化,單一警訊不代表反轉;出現警訊後再創高,視為失效。</div></div>`;
+}
+
 function trendBadge(code){
   const a = analyze(code); if(!a) return "";
   let h = `<span class="tr tr-${a.trend.k}" title="依 5/10/20/55MA 排列判斷的目前趨勢">${a.trend.t}</span>`;
   const lv = a.stage.lv;
   if(lv === -1) h += `<span class="sg sg-f" title="${esc(a.stage.t)}">止跌失敗</span>`;
   else if(lv >= 2) h += `<span class="sg sg-${lv}" title="${esc(a.stage.t)}">${["", "", "止跌", "型態", "確認"][lv]}</span>`;
+  const tl = a.top ? a.top.stage.lv : 0;
+  if(tl >= 2) h += `<span class="sg sg-t${tl}" title="高檔:${esc(a.top.stage.t)}">${["", "", "頭部警訊", "頂型態", "見頂"][tl]}</span>`;
   return h;
 }
-function bottomPanel(code){
+function bottomPanel0(code){
   const a = analyze(code); if(!a || !a.checks.length) return "";
   const lv = a.stage.lv, steps = ["接近支撐", "止跌跡象", "反轉型態", "底部確認"];
   const bar = steps.map((s, i) => `<div class="${lv >= i+1 ? "on" : ""}${lv === -1 ? " fl" : ""}">${s}</div>`).join("");
@@ -690,12 +783,15 @@ function bottomPanel(code){
     <div class="chk">${a.checks.map(x => `<div>${mark(x.ok)}<span>${esc(x.t)}</span><span class="mute">${esc(x.d)}</span></div>`).join("")}</div>
     <div class="note" style="margin:6px 0 0">依日 K 與 5/10/20/55/60MA 的規則判斷,只是機率參考,不保證反轉;型態定義見「K線止跌與反轉觀察」教學頁。</div></div>`;
 }
+function bottomPanel(code){ return bottomPanel0(code) + topPanel(code); }
 function markersOf(code){
   const d = PRICES[code]; if(!d || d.rows.length < 60) return [];
   const r = d.rows, ma10 = anlMA(r, 10), out = [];
   for(let i=Math.max(10, r.length-250); i<r.length; i++)
-    anlDetect(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"belowBar", shape:"arrowUp",
-      color: s.kind==="rev" ? "#ef4444" : s.kind==="stop" ? "#f2c94c" : "#aeb7c6", text: s.name}));
+    { anlDetect(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"belowBar", shape:"arrowUp",
+        color: s.kind==="rev" ? "#ef4444" : s.kind==="stop" ? "#f2c94c" : "#aeb7c6", text: s.name}));
+      anlDetectTop(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"aboveBar", shape:"arrowDown",
+        color: s.kind==="trev" ? "#22c55e" : s.kind==="tstop" ? "#7ccf95" : "#aeb7c6", text: s.name})); }
   return out;
 }
 
