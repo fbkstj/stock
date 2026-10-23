@@ -228,6 +228,20 @@ td.clk{cursor:pointer}
 .note{font-size:calc(12px*var(--fs));color:var(--mute);margin-top:8px}
 @media(max-width:1100px){#view{grid-template-columns:calc(220px*var(--fs)) minmax(0,1fr)} #info{display:none}}
 @media(max-width:700px){#view{grid-template-columns:1fr;grid-template-rows:180px 1fr} #list{border-right:0;border-bottom:1px solid var(--line)}}
+.tr{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;font-size:calc(11px*var(--fs));line-height:18px;font-weight:600;white-space:nowrap;vertical-align:1px}
+.tr-bull{background:#3a1c1c;color:#ff8a8a}.tr-pull{background:#4a4420;color:#f2da6b}.tr-weak{background:#4a3a20;color:#ffb36b}
+.tr-bear{background:#1f2a21;color:#7ccf95}.tr-rb{background:#223228;color:#a6e0b8}.tr-flat,.tr-na{background:#272c36;color:#aeb7c6}
+.sg{display:inline-block;margin-left:4px;padding:0 6px;border-radius:9px;font-size:calc(11px*var(--fs));line-height:18px;font-weight:600;white-space:nowrap;vertical-align:1px;border:1px solid}
+.sg-2{color:#f2c94c;border-color:#f2c94c}.sg-3{color:#ff8a8a;border-color:#ff8a8a}.sg-4{color:#fff;background:#c0392b;border-color:#c0392b}.sg-f{color:#aeb7c6;border-color:#566075;text-decoration:line-through}
+.anl{border:1px solid #2a303c;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.anl-top{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:calc(13px*var(--fs))}
+.anl-top .tr{margin-left:0}.stg{font-weight:700}.stg.f{color:#aeb7c6}
+.stbar{display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
+.stbar div{background:#1a1f29;color:var(--mute);text-align:center;font-size:calc(11px*var(--fs));padding:3px 0;border-radius:4px}
+.stbar div.on{background:#7a2a24;color:#fff}.stbar div.on.fl{background:#3a3f4a;color:#aeb7c6}
+.chk{display:grid;gap:4px;font-size:calc(12px*var(--fs))}
+.chk>div{display:grid;grid-template-columns:16px 64px 1fr;gap:6px;align-items:start}
+.chk b{text-align:center}
 </style>
 </head>
 <body>
@@ -504,7 +518,7 @@ function renderList(){
   const row = (code,name,status) => {
     const i = lastInfo(code);
     return `<div class="row ${code===current?'sel':''}" data-c="${code}">
-      <div><span class="nm">${esc(name)}</span><span class="cd">${esc(code)}</span></div>
+      <div><span class="nm">${esc(name)}</span><span class="cd">${esc(code)}</span>${trendBadge(code)}</div>
       <div class="px ${cls(i&&i.chg)}">${i?fmt(i.c):'—'}</div>
       <div class="sub">${status?`<span class="pill ${status}">${ST[status]}</span>`:''}</div>
       <div class="px sub ${cls(i&&i.chg)}">${i?pct(i.pct):''}</div></div>`;
@@ -575,6 +589,116 @@ function select(code){
                $("#legend").innerHTML = `此公開版未收錄該股 K 線 · <a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener" style="color:var(--accent)">到 Yahoo 股市看 ${esc(nameOf(code))} ${code}</a>`; } });
 }
 
+// ---------- 底部與趨勢判斷(日 K 規則,教學參考,不保證反轉)----------
+const ANL = {cache:{}};
+function anlMA(rows, n){ const o = new Array(rows.length).fill(null); let s = 0;
+  for(let i=0;i<rows.length;i++){ s += rows[i][4]; if(i>=n) s -= rows[i-n][4]; if(i>=n-1) o[i] = s/n; } return o; }
+function anlDetect(r, ma10, i){   // 回傳該根 K 線結尾的訊號 [{name, kind:"stop"|"rev"|"warn"}]
+  const res = []; if(i < 10 || ma10[i-2] == null) return res;
+  const f = k => ({o:r[k][1], h:r[k][2], l:r[k][3], c:r[k][4], body:Math.abs(r[k][4]-r[k][1]), rng:r[k][2]-r[k][3]});
+  const down = k => k >= 10 && ma10[k] != null && r[k][4] < ma10[k] && r[k][4] < r[k-5][4];
+  const bigBlack = k => { const x = f(k); return x.c < x.o && x.body/x.c >= 0.012 && x.body >= 0.5*x.rng; };
+  const x = f(i);
+  if(down(i) && x.rng > 0 && x.rng/x.c >= 0.012){
+    const lower = Math.min(x.o, x.c) - x.l, upper = x.h - Math.max(x.o, x.c);
+    if(lower >= 2*x.body && lower >= 0.5*x.rng && upper <= 0.3*x.rng) res.push({name:"長下影線", kind:"stop"});
+  }
+  if(i >= 1){
+    const p = f(i-1);
+    if(down(i-1) && p.c < p.o && x.c > x.o && x.o <= p.c && x.c >= p.o && x.body > p.body) res.push({name:"多頭吞噬", kind:"rev"});
+    else if(down(i-1) && bigBlack(i-1) && x.c > x.o && x.o < p.c && x.c > (p.o+p.c)/2 && x.c < p.o) res.push({name:"貫穿線", kind:"rev"});
+    else if(down(i-1) && bigBlack(i-1) && Math.max(x.o,x.c) <= p.o && Math.min(x.o,x.c) >= p.c && x.body < 0.6*p.body) res.push({name:"孕線", kind:"warn"});
+  }
+  if(i >= 2){
+    const a = f(i-2), b = f(i-1);
+    if(down(i-2) && bigBlack(i-2) && b.body <= 0.35*a.body && Math.max(b.o,b.c) <= a.c*1.005 && x.c > x.o && x.c > (a.o+a.c)/2) res.push({name:"晨星", kind:"rev"});
+  }
+  return res;
+}
+function analyze(code){
+  const d = PRICES[code]; if(!d) return null;
+  const r = d.rows, n = r.length, key = n + "|" + (n ? r[n-1][0] + "|" + r[n-1][4] : "");
+  const c0 = ANL.cache[code]; if(c0 && c0.key === key) return c0;
+  const out = {key, sigs:[], checks:[]};
+  ANL.cache[code] = out;
+  if(n < 60){ out.trend = {k:"na", t:"資料不足"}; out.stage = {lv:0, t:"資料不足"}; return out; }
+  const ma5 = anlMA(r,5), ma10 = anlMA(r,10), ma20 = anlMA(r,20), ma55 = anlMA(r,55), ma60 = anlMA(r,60);
+  const L = n-1, c = r[L][4];
+  // 趨勢
+  const up20 = ma20[L] > ma20[L-5];
+  let tk, tt;
+  if(c >= ma20[L] && ma20[L] >= ma55[L]){ tk = "bull"; tt = "多頭"; }
+  else if(c < ma20[L] && c >= ma55[L] && ma20[L] >= ma55[L]){ tk = "pull"; tt = "多頭回檔"; }
+  else if(c < ma55[L] && ma20[L] >= ma55[L]){ tk = "weak"; tt = "跌破55MA"; }
+  else if(c < ma20[L] && ma20[L] < ma55[L]){ tk = "bear"; tt = "空頭"; }
+  else if(c >= ma20[L] && c < ma55[L]){ tk = "rb"; tt = "空頭反彈"; }
+  else { tk = "flat"; tt = "盤整"; }
+  out.trend = {k:tk, t:tt, up20};
+  // 近 8 根的訊號
+  for(let i=Math.max(10,n-8); i<n; i++) anlDetect(r, ma10, i).forEach(s => out.sigs.push({i, date:r[i][0], name:s.name, kind:s.kind}));
+  // 支撐位置
+  const low60 = Math.min(...r.slice(-60).map(x=>x[3])), low5 = Math.min(...r.slice(-5).map(x=>x[3]));
+  const gap = v => (low5/v-1)*100;
+  const sup = {ma55:gap(ma55[L]), ma60:gap(ma60[L]), low60:gap(low60)};
+  const nearSup = Object.values(sup).some(g => g <= 2 && g >= -5);
+  const stopS = out.sigs.filter(s => s.kind==="stop" && s.i >= n-5).pop();
+  const revS = out.sigs.filter(s => s.kind==="rev" && s.i >= n-4).pop();
+  const warnS = out.sigs.filter(s => s.kind==="warn" && s.i >= n-4).pop();
+  const anchor = [stopS, revS, warnS].filter(Boolean).sort((a,b)=>b.i-a.i)[0];
+  let fail = false;
+  if(anchor) for(let j=anchor.i+1; j<n; j++) if(r[j][4] < r[anchor.i][3]*0.999) fail = true;
+  const confirm = !!anchor && !fail && anchor.i < L && c > ma5[L] && c > ma10[L] && c > r[anchor.i][2];
+  let lv, st;
+  if(fail){ lv = -1; st = "止跌失敗(曾出現訊號後又破低)"; }
+  else if(confirm){ lv = 4; st = "底部確認(站回均線)"; }
+  else if(revS){ lv = 3; st = "反轉型態成立,待確認"; }
+  else if((stopS || warnS) && nearSup){ lv = 2; st = stopS ? "止跌跡象" : "孕線警戒"; }
+  else if(nearSup && c < ma20[L]){ lv = 1; st = "接近支撐,尚無止跌訊號"; }
+  else { lv = 0; st = "無底部訊號"; }
+  out.stage = {lv, t:st, anchor};
+  // 檢查清單
+  const vol3 = Math.max(...r.slice(-3).map(x=>x[5])), v20 = r.slice(-20).reduce((a,x)=>a+x[5],0)/20, vr = v20 > 0 ? vol3/v20 : null;
+  const sg = g => (g>=0?"+":"") + g.toFixed(1) + "%";
+  const md2 = ds => ds.slice(5).replace("-","/");
+  out.checks = [
+    {t:"支撐位置", ok:nearSup, d:`近 5 日低點距 55MA ${sg(sup.ma55)}、60MA ${sg(sup.ma60)}、60 日低 ${sg(sup.low60)}`},
+    {t:"止跌 K 線", ok:!!stopS, d: stopS ? `${md2(stopS.date)} ${stopS.name}` : "近 5 日沒有長下影線"},
+    {t:"反轉型態", ok:!!revS, d: revS ? `${md2(revS.date)} ${revS.name}` : warnS ? `${md2(warnS.date)} ${warnS.name}(需下一根向上確認)` : "近 4 日沒有晨星、吞噬、貫穿線"},
+    {t:"站回均線", ok:c > ma5[L] && c > ma10[L], d:`收 ${fmt(c)},5MA ${fmt(ma5[L])},10MA ${fmt(ma10[L])}`},
+    {t:"量能", ok: vr != null && vr >= 1.2, d: vr == null ? "—" : `近 3 日最大量為 20 日均量的 ${vr.toFixed(2)} 倍`},
+    {t:"後續守住", ok: anchor ? !fail : null, d: anchor ? (fail ? `收盤跌破 ${md2(anchor.date)} 訊號 K 的低點 ${fmt(r[anchor.i][3])}` : `${md2(anchor.date)} 訊號後未破低 ${fmt(r[anchor.i][3])}`) : "尚無訊號可檢查"},
+  ];
+  out.ma = {ma5:ma5[L], ma10:ma10[L], ma20:ma20[L], ma55:ma55[L], ma60:ma60[L]};
+  return out;
+}
+function trendBadge(code){
+  const a = analyze(code); if(!a) return "";
+  let h = `<span class="tr tr-${a.trend.k}" title="依 5/10/20/55MA 排列判斷的目前趨勢">${a.trend.t}</span>`;
+  const lv = a.stage.lv;
+  if(lv === -1) h += `<span class="sg sg-f" title="${esc(a.stage.t)}">止跌失敗</span>`;
+  else if(lv >= 2) h += `<span class="sg sg-${lv}" title="${esc(a.stage.t)}">${["", "", "止跌", "型態", "確認"][lv]}</span>`;
+  return h;
+}
+function bottomPanel(code){
+  const a = analyze(code); if(!a || !a.checks.length) return "";
+  const lv = a.stage.lv, steps = ["接近支撐", "止跌跡象", "反轉型態", "底部確認"];
+  const bar = steps.map((s, i) => `<div class="${lv >= i+1 ? "on" : ""}${lv === -1 ? " fl" : ""}">${s}</div>`).join("");
+  const mark = ok => ok === null ? `<b class="mute">—</b>` : ok ? `<b class="up">✓</b>` : `<b class="mute">✗</b>`;
+  return `<h3>底部與趨勢判斷</h3>
+    <div class="anl"><div class="anl-top"><span>趨勢</span><span class="tr tr-${a.trend.k}">${a.trend.t}</span><span>階段</span><span class="stg ${lv === -1 ? "f" : ""}">${esc(a.stage.t)}</span></div>
+    <div class="stbar">${bar}</div>
+    <div class="chk">${a.checks.map(x => `<div>${mark(x.ok)}<span>${esc(x.t)}</span><span class="mute">${esc(x.d)}</span></div>`).join("")}</div>
+    <div class="note" style="margin:6px 0 0">依日 K 與 5/10/20/55/60MA 的規則判斷,只是機率參考,不保證反轉;型態定義見「K線止跌與反轉觀察」教學頁。</div></div>`;
+}
+function markersOf(code){
+  const d = PRICES[code]; if(!d || d.rows.length < 60) return [];
+  const r = d.rows, ma10 = anlMA(r, 10), out = [];
+  for(let i=Math.max(10, r.length-250); i<r.length; i++)
+    anlDetect(r, ma10, i).forEach(s => out.push({time:r[i][0], position:"belowBar", shape:"arrowUp",
+      color: s.kind==="rev" ? "#ef4444" : s.kind==="stop" ? "#f2c94c" : "#aeb7c6", text: s.name}));
+  return out;
+}
+
 // ---------- 圖表 ----------
 let mainChart, indChart, S_c, S_v, S_ma = {}, S_i = [], syncing=false;
 const chartOpts = h => ({
@@ -632,9 +756,11 @@ function renderChart(){
   const cbk = cbView ? cbkOf(cbView) : null;
   const d = cbk ? {rows: cbk.r, symbol: "CB " + cbView} : PRICES[current], name = nameOf(current);
   $("#ttl").textContent = cbk ? `${cbk.n} ${cbView}(轉換公司債 · 標的 ${name} ${current})` : `${name} ${current}`;
+  if(!cbk) $("#ttl").insertAdjacentHTML("beforeend", trendBadge(current));
   if(!d){ S_c.setData([]); S_v.setData([]); $("#legend").textContent="無股價資料"; return; }
   viewRows = aggregate(d.rows, period);
   S_c.setData(viewRows.map(r=>({time:r[0],open:r[1],high:r[2],low:r[3],close:r[4]})));
+  try{ S_c.setMarkers(!cbk && period==="D" ? markersOf(current) : []); }catch(e){}
   S_v.setData(viewRows.map(r=>({time:r[0],value:r[5],color:r[4]>=r[1]?"rgba(239,68,68,.55)":"rgba(34,197,94,.55)"})));
   MAS.forEach(m => { maData[m.n] = sma(viewRows, m.n); S_ma[m.n].setData(maOn[m.n]?maData[m.n]:[]); });
   bbData = boll(viewRows);
@@ -725,6 +851,7 @@ function renderInfo(){
     const ma20 = r.slice(-20).reduce((a,x)=>a+x[4],0)/Math.min(20,r.length);
     h += `<div class="${cls(i.chg)}" style="font-size:calc(24px*var(--fs));font-weight:700">${fmt(i.c)} <span style="font-size:calc(14px*var(--fs))">${i.chg>=0?"+":""}${fmt(i.chg)} (${pct(i.pct)})</span></div>
       <div class="mute" style="font-size:calc(12px*var(--fs))">收盤 ${i.date} · ${d.symbol}</div>
+      ${bottomPanel(current)}
       <h3>區間表現</h3>
       <div class="perf">${[["5日",5],["20日",20],["60日",60],["120日",120]].map(([t,n])=>{const p=perf(r,n);return `<div>${t}<b class="${cls(p)}">${p==null?"—":pct(p)}</b></div>`}).join("")}</div>
       <h3>價量位置</h3>
