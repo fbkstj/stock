@@ -325,6 +325,7 @@ td.clk{cursor:pointer}
 <script src="data/gindex.js"></script>
 <script src="data/margin.js"></script>
 <script src="data/tech.js"></script>
+<script src="data/trend.js"></script>
 <script src="data/digest.js"></script>
 <script src="data/us.js"></script>
 <script src="data/us_map.js"></script>
@@ -1527,9 +1528,49 @@ function renderTech(){
       <td>${kdTxt(x.d,"日")}</td><td>${kdTxt(x.w,"週")}</td><td>${kdTxt(x.m,"月")}</td>
       <td>${x.pb ? `<span class="up">${x.pb[0]===0?"今日":"前"+x.pb[0]+"日"}</span> <span class="mute">量${fmt(x.pb[3],1)}倍 突破+${fmt(x.pb[4],1)}% 平台高${fmt(x.pb[1])}</span>` : '<span class="mute">—</span>'}</td>
       <td class="n">${fmt(x.v20,0)}</td></tr>`).join("") || '<tr><td colspan="14" class="mute">沒有符合條件的個股,請放寬條件</td></tr>'}
+    </tbody></table></div><div id="rv"></div>`;
+  renderRv();
+}
+const rvState = {dir:"bottom", lv:2, tr:"any", minV:1000, sort:"r20", top:50};
+try { const s = JSON.parse(localStorage.getItem("rvState") || "null"); if(s && typeof s === "object") Object.assign(rvState, s); } catch(e){}
+const TR_TXT = {bull:"多頭", pull:"多頭回檔", weak:"跌破55MA", bear:"空頭", rb:"空頭反彈", flat:"盤整"};
+function renderRv(){
+  const el = $("#rv"); if(!el) return;
+  const R = window.TREND;
+  if(!R){ el.innerHTML = '<div class="note">尚無「反轉訊號」資料,請執行 update_all.bat(scan_trend.py)。</div>'; return; }
+  try { localStorage.setItem("rvState", JSON.stringify(rvState)); } catch(e){}
+  const isB = rvState.dir === "bottom", key = isB ? "b" : "p", sk = isB ? "bs" : "ps";
+  const lvOk = x => rvState.lv === -1 ? x[key] === -1 : x[key] >= rvState.lv;
+  let rows = R.rows.filter(x => lvOk(x) && (rvState.tr === "any" || x.t === rvState.tr) && (!rvState.minV || x.v20 >= rvState.minV));
+  const SKs = {r20:(a,b) => (b.r20||-999) - (a.r20||-999), v:(a,b) => b.v20 - a.v20, r1:(a,b) => b.r1 - a.r1, lv:(a,b) => (b[key]) - (a[key]) || b.v20 - a.v20};
+  rows.sort(SKs[rvState.sort]);
+  const shown = rows.slice(0, rvState.top), wlSet = new Set(WL.map(x => x.code));
+  const seg = (id, items, cur) => `<div class="seg" data-rv="${id}">${items.map(([k,t])=>`<button data-k="${k}" class="${String(cur)===String(k)?'on':''}">${t}</button>`).join("")}</div>`;
+  const stN = isB ? {2:"止跌跡象", 3:"反轉型態", 4:"底部確認", "-1":"止跌失敗"} : {2:"轉弱跡象", 3:"反轉型態", 4:"頭部確認", "-1":"警訊失效"};
+  const stC = lv => lv === -1 ? "mute" : isB ? (lv >= 3 ? "up" : "") : (lv >= 3 ? "dn" : "");
+  const flag = x => isB ? "" : [x.kx ? "KD高檔死叉" : "", x.dv ? "量價背離" : ""].filter(Boolean).join("、");
+  el.innerHTML = `<h3 style="margin:22px 0 6px">反轉訊號:全市場${isB ? "底部止跌" : "高檔轉弱"}</h3>
+    <div class="note" style="margin:0 0 8px">依日 K 的規則判斷(5/10/20/55/60MA;${isB ? "長下影線、晨星、多頭吞噬、貫穿線、孕線" : "長上影線、夜星、空頭吞噬、烏雲罩頂、高檔孕線、爆量長黑、KD 高檔死叉、量價背離"}),資料至 ${esc(R.meta.asof)}。階段:${isB ? "止跌跡象(靠近 55/60MA 或 60 日低且出現長下影線)→ 反轉型態成立 → 底部確認(站回 5、10MA 並突破訊號 K 高點);訊號後收盤跌破其低點為「止跌失敗」" : "轉弱跡象 → 反轉型態成立 → 頭部確認(收盤跌破 10MA 與訊號 K 低點);訊號後再創高為「警訊失效」"}。只是機率參考,不保證反轉。</div>
+    <div class="fl-ctl"><span class="lab">方向</span>${seg("dir", [["bottom","底部反轉"],["top","高檔反轉"]], rvState.dir)}
+      <span class="lab">階段</span>${seg("lv", [[2,"≥ " + stN[2]],[3,"≥ 型態"],[4,"確認"],[-1,stN[-1]]], rvState.lv)}</div>
+    <div class="fl-ctl"><span class="lab">趨勢</span>${seg("tr", [["any","不限"],["bull","多頭"],["pull","多頭回檔"],["weak","跌破55MA"],["bear","空頭"],["rb","空頭反彈"]], rvState.tr)}
+      <span class="lab">20日均量至少(張)</span>${seg("minV", [[0,"不限"],[300,"300"],[1000,"1,000"],[3000,"3,000"]], rvState.minV)}</div>
+    <div class="fl-ctl"><span class="lab">排序</span>${seg("sort", [["r20","20日漲幅"],["v","均量"],["r1","今日漲幅"],["lv","階段"]], rvState.sort)}
+      <span class="lab">顯示</span>${seg("top", [[30,"前 30"],[50,"前 50"],[100,"前 100"]], rvState.top)}</div>
+    <div class="note" style="margin:0 0 8px"><b>符合條件 ${rows.length} 檔</b>,顯示前 ${shown.length} 檔。點任一列看 K 線與完整檢查清單。</div>
+    <div class="tbl"><table><thead><tr><th>#</th><th>個股</th><th class="n">收盤</th><th class="n">今日</th><th class="n">20日漲幅</th><th>趨勢</th><th>階段</th><th>近 5 日訊號</th><th class="n">20日均量(張)</th></tr></thead><tbody>
+    ${shown.map((x,i) => `<tr class="clk" data-c="${x.c}"><td class="mute">${i+1}</td>
+      <td><b>${esc(x.n)}</b> <span class="mute">${x.c}</span>${wlSet.has(x.c) ? ' <span class="tagc w">自選</span>' : ''}</td>
+      <td class="n">${fmt(x.px)}</td><td class="n ${cls(x.r1)}">${pct(x.r1)}</td><td class="n ${cls(x.r20)}">${x.r20==null?"—":pct(x.r20)}</td>
+      <td><span class="tr tr-${x.t}" style="margin-left:0">${TR_TXT[x.t]}</span></td>
+      <td class="${stC(x[key])}">${stN[x[key]] || "—"}</td>
+      <td>${esc((x[sk]||[]).map(g => g[0].replace("-","/") + " " + g[1]).join("、") || "—")}${flag(x) ? ` <span class="mute">${flag(x)}</span>` : ""}</td>
+      <td class="n">${fmt(x.v20,0)}</td></tr>`).join("") || '<tr><td colspan="9" class="mute">沒有符合條件的個股,請放寬條件</td></tr>'}
     </tbody></table></div>`;
 }
 $("#tech").addEventListener("click", e => {
+  const rg = e.target.closest("[data-rv] button");
+  if(rg){ const id = rg.parentNode.dataset.rv; rvState[id] = ["dir","tr","sort"].includes(id) ? rg.dataset.k : +rg.dataset.k; renderRv(); return; }
   const sg = e.target.closest(".seg button");
   if(sg){ const id = sg.parentNode.dataset.id; tcState[id] = ["dkd","wkd","mkd","pb","sort"].includes(id) ? sg.dataset.k : +sg.dataset.k; renderTech(); return; }
   const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c);
