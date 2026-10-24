@@ -265,6 +265,7 @@ td.clk{cursor:pointer}
     <button data-t="us">美股</button>
     <button data-t="udn">財經新聞</button>
     <button data-t="arena">台股擂台</button>
+    <button data-t="outlook">2027 名師展望</button>
     <button data-t="ccl">CCL 進度</button>
     <button data-t="digest">新聞彙整</button>
     <button data-t="calendar">行事曆 / 待追蹤</button>
@@ -315,6 +316,7 @@ td.clk{cursor:pointer}
 <section class="tab" id="t-cmp"><div class="page"><div class="wrap" id="cmp"></div></div></section>
 <section class="tab" id="t-us"><div class="page"><div class="wrap" id="us"></div></div></section>
 <section class="tab" id="t-ccl"><div class="page"><div class="wrap" id="ccl"></div></div></section>
+<section class="tab" id="t-outlook"><div class="page"><div class="wrap" id="outlook"></div></div></section>
 <section class="tab" id="t-arena"><div class="page"><div class="wrap" id="arena"></div></div></section>
 <section class="tab" id="t-udn"><div class="page"><div class="wrap" id="udn"></div></div></section>
 <section class="tab" id="t-digest"><div class="page"><div class="wrap" id="digest"></div></div></section>
@@ -329,6 +331,7 @@ td.clk{cursor:pointer}
 <script src="data/margin.js"></script>
 <script src="data/tech.js"></script>
 <script src="data/trend.js"></script>
+<script src="data/outlook2027.js"></script>
 <script src="data/digest.js"></script>
 <script src="data/us.js"></script>
 <script src="data/us_map.js"></script>
@@ -391,6 +394,7 @@ $("#nav").addEventListener("click", e => {
   if(b.dataset.t==="tech") renderTech();
   if(b.dataset.t==="cb") renderCb();
   if(b.dataset.t==="arena") renderArena();
+  if(b.dataset.t==="outlook") renderOutlook();
   if(b.dataset.t==="ccl") renderCcl();   // 分頁顯示後才畫圖,避免寬度為 0
   navPush();
 });
@@ -1660,6 +1664,35 @@ function renderTop(){
 $("#top15").addEventListener("click", e => { const tr = e.target.closest("tr.clk"); if(tr) gotoStock(tr.dataset.c); });
 
 // ---------- CCL 材料進度(M8 / M9 / M10 / PTFE) ----------
+function renderOutlook(){
+  const el = $("#outlook"), O = window.OUTLOOK;
+  if(!O){ el.innerHTML = '<div class="note">尚無資料。</div>'; return; }
+  const tw = PRICES.TWII && PRICES.TWII.rows;
+  let cmp = "";
+  if(tw && tw.length >= 60){
+    const ma = n => tw.slice(-n).reduce((a,x)=>a+x[4],0)/n, c = tw.at(-1)[4], m55 = ma(55), m60 = ma(60), m120 = ma(120 > tw.length ? tw.length : 120);
+    const d = v => (c/v-1)*100;
+    cmp = `<div class="note" style="margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px"><b>與目前盤勢對照</b>(本站資料 ${esc(tw.at(-1)[0])}):加權指數收 <b>${fmt(c)}</b>;55MA ${fmt(m55)}(${pct(d(m55))})、60MA ${fmt(m60)}(${pct(d(m60))})、120MA ${fmt(m120)}(${pct(d(m120))})。名師共識支撐區 45,000~46,000,距今 ${pct((45000/c-1)*100)} ~ ${pct((46000/c-1)*100)}。</div>`;
+  }
+  const tb = (heads, rows) => `<div class="tbl"><table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(x=>`<td>${esc(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const ul = a => `<ul style="margin:6px 0 6px 18px;padding:0">${a.map(x=>`<li style="margin:4px 0">${esc(x)}</li>`).join("")}</ul>`;
+  const h3 = t => `<h3 style="margin:22px 0 6px">${t}</h3>`;
+  el.innerHTML = `<h2 style="margin:0 0 6px">2027 名師展望</h2>
+    <div class="note" style="margin:0 0 8px">整理自三份 PDF(來源:${O.src.map(x=>esc(x.n)).join("、")});${esc(O.rec)}。整理日 ${esc(O.asof)}。</div>
+    <div class="note" style="margin:0 0 8px;color:var(--text)"><b>一句話:</b>${esc(O.tldr)}</div>
+    ${cmp}
+    ${h3("一、10 月震盪的原因(各家說法)")}${tb(["名師","說法"], O.why)}
+    ${h3("二、大盤下檔支撐")}${tb(["名師","支撐/落底看法"], O.support)}
+    ${h3("三、2026~2027 獲利與本益比")}${tb(["項目","數據","說明"], O.pe)}
+    ${h3("四、台積電 2027 三情境(程正樺)")}${tb(["情境","條件","台積電估值","台股區間"], O.tsmc)}
+    <div class="note">${esc(O.tsmc_note)}</div>
+    ${h3("五、「明年缺資料中心」:隱形實體瓶頸")}${ul(O.bottleneck)}
+    ${h3("六、2027 轉向「規格升級」三大新主軸")}${tb(["主軸","重點"], O.themes)}
+    ${h3("七、台光電 / PTFE / CPO 降規說的釐清")}${tb(["議題","內容"], O.ptfe)}
+    ${h3("八、名師點名個股一覽")}${tb(["代號","個股","點名者","題材與基本面","分析師看法"], O.stocks)}
+    ${h3("九、分階段佈局紀律(手冊整理)")}${tb(["階段","內容"], O.sop)}
+    ${h3("注意")}${ul(O.notes)}`;
+}
 function renderCcl(){
   const el = $("#ccl"), C = window.CCL;
   if(!C){ el.innerHTML = '<div class="headline">尚無資料(data/ccl_status.js)。</div>'; return; }
