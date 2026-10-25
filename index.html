@@ -242,6 +242,7 @@ td.clk{cursor:pointer}
 .chk{display:grid;gap:4px;font-size:calc(12px*var(--fs))}
 .chk>div{display:grid;grid-template-columns:16px 64px 1fr;gap:6px;align-items:start}
 .chk b{text-align:center}
+.sg-hl{background:rgba(245,185,66,.18);color:#f5b942;border:1px solid rgba(245,185,66,.5)}
 .sigchk{display:inline-flex;flex-wrap:wrap;gap:4px 12px;margin-left:10px;font-size:calc(12px*var(--fs));color:var(--mute);align-items:center}
 .sigchk label{display:inline-flex;gap:4px;align-items:center;cursor:pointer;white-space:nowrap}
 .sigchk input{accent-color:#ef4444;cursor:pointer}
@@ -770,6 +771,12 @@ function topPanel(code){
     <div class="note" style="margin:6px 0 0">高檔訊號是機率參考:強勢股可以長時間鈍化,單一警訊不代表反轉;出現警訊後再創高,視為失效。</div></div>`;
 }
 
+let HL_MAP = null;
+function hlOf(code){
+  if(!window.TREND) return null;
+  if(!HL_MAP){ HL_MAP = {}; window.TREND.rows.forEach(x => { if(x.hlo) HL_MAP[x.c] = x; }); }
+  return HL_MAP[code] || null;
+}
 function trendBadge(code){
   const a = analyze(code); if(!a) return "";
   let h = `<span class="tr tr-${a.trend.k}" title="依 5/10/20/55MA 排列判斷的目前趨勢">${a.trend.t}</span>`;
@@ -778,6 +785,8 @@ function trendBadge(code){
   else if(lv >= 2) h += `<span class="sg sg-${lv}" title="${esc(a.stage.t)}">${["", "", "止跌", "型態", "確認"][lv]}</span>`;
   const tl = a.top ? a.top.stage.lv : 0;
   if(tl >= 2) h += `<span class="sg sg-t${tl}" title="高檔:${esc(a.top.stage.t)}">${["", "", "頭部警訊", "頂型態", "見頂"][tl]}</span>`;
+  const hx = hlOf(code);
+  if(hx && hx.hl >= 3) h += `<span class="sg sg-hl" title="近 70 日轉折低點連續 3 次墊高:${esc((hx.lo || []).join(' → '))}(收盤在 20MA、60MA 之上,規則掃描,資料至 ${esc(window.TREND.meta.asof)})">底底高×3</span>`;
   return h;
 }
 function bottomPanel0(code){
