@@ -333,6 +333,7 @@ td.clk{cursor:pointer}
 <script src="data/tech.js"></script>
 <script src="data/trend.js"></script>
 <script src="data/outlook2027.js"></script>
+<script src="data/site.js"></script>
 <script src="data/digest.js"></script>
 <script src="data/us.js"></script>
 <script src="data/us_map.js"></script>
@@ -365,7 +366,7 @@ const pct = n => n==null ? "—" : (n>0?"+":"")+n.toFixed(2)+"%";
 const cls = n => n>0 ? "up" : n<0 ? "dn" : "";
 
 const meta = window.PRICES_META || {};
-$("#meta").textContent = `彙整 ${window.WATCH_META.asof} · 股價資料至 ${(PRICES.TWII?PRICES.TWII.rows.at(-1)[0]:"—")}(抓取 ${meta.updated||"—"})`;
+$("#meta").textContent = `彙整 ${window.WATCH_META.asof} · 股價資料至 ${(PRICES.TWII?PRICES.TWII.rows.at(-1)[0]:"—")}(抓取 ${meta.updated||"—"}) · 網頁更新 ${(window.SITE_META||{}).published||"—"}`;
 
 // ---------- 分頁 ----------
 // ---- 瀏覽器「上一頁」支援:每次切換分頁或個股都會留下一筆歷史,並記住各分頁的捲動位置 ----
