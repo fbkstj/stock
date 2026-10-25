@@ -438,6 +438,7 @@ window.WATCHLIST = [
 // 大盤與其他參考個股(非自選股,僅供看圖)
 window.REFERENCE = [
   { code: "TWII", name: "加權指數" },
+  { code: "TXF", name: "富台指(台指期近月)" },
   { code: "2330", name: "台積電" },
   { code: "2317", name: "鴻海" },
   { code: "2408", name: "南亞科" },
